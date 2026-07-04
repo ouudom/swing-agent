@@ -77,19 +77,19 @@ context from its `wiki/` checkout and numbers + compute from the MCP server. No 
 ```
 swing-agent/                         ← ONE repo · `live` branch = command + routine read/write
   wiki/                             ← AI EXECUTION CONTEXT ONLY (curated, no parent-wiki copy)
-    system/core/constitution.md               ← risk / SL·TP·offset / gates / zone rules
-    system/core/calibration.md                ← current edge (which pairs working/dead)
-    system/core/setup_library.md              ← recurring zone patterns (thinking pattern)
-    system/core/currency_exposure.md          ← FX netting (validate-time)
-    system/core/macro/yield_environment.md    ← macro baseline (weekly rewrites)
+    system/constitution.md                    ← risk / SL·TP·offset / gates / zone rules
+    system/calibration.md                     ← current edge (which pairs working/dead)
+    system/setup_library.md                   ← recurring zone patterns (thinking pattern)
+    system/currency_exposure.md               ← FX netting (validate-time)
+    system/yield_environment.md               ← macro baseline (weekly rewrites)
     system/{instrument}/{confluence_criteria, *_profile}.md
     templates/{weekly_forecast, daily_validation}.md
     weekly-forecasts/{YYYYWNN}/{instrument}.md ← /weekly output; AI reads back as context
-    validations/{YYYYMMDD}/{instrument}.md     ← /validate output; AI reads back as context
+    validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md ← /validate output; AI reads back as context
   src/                              ← THE DEPLOYED APP (all the container builds)
     docker-compose.yml
     .env                            # TWELVE_DATA_KEY, FRED_KEY, TELEGRAM_*, DB creds, MCP_AUTH_TOKEN
-    postgres/  init.sql             ← ALL numbers, source of truth
+    database/  init.sql             ← ALL numbers, source of truth
     pipeline/  scheduler.py, tasks/ ← fetch, compute, gates, EC, replay, calibration, brief
     mcp-server/ server.py           ← data + compute + structured-write tools (§5)
     engine/                         ← deterministic scripts imported by pipeline + mcp-server
@@ -148,7 +148,7 @@ leg only ever sees the MCP server, never the DB.
 
 The store is already a clean 10-table SQLite DB (`data/database/index.db`). Migration is mechanical:
 
-1. **Schema:** translate the SQLite `CREATE TABLE`s to Postgres in `postgres/init.sql`.
+1. **Schema:** translate the SQLite `CREATE TABLE`s to Postgres in `database/init.sql`.
    Types: `REAL`→`double precision`, `TEXT` timestamps→`timestamptz` (store UTC, no tz math change),
    add explicit PKs (e.g. `ohlc (symbol, timeframe, datetime)`), index on `(symbol, timeframe,
    datetime)` and `zone_ledger(zone_id)`.
@@ -165,7 +165,7 @@ Keep `db_guard.py`-style backups on Postgres too (`pg_dump` nightly, keep 7).
 
 ## 3b. Storage — Postgres for numbers, `wiki/` for prose; `src/` deploy holds no markdown
 
-**Split by home: tabular → Postgres (`src/postgres`). Execution prose → curated `wiki/` (rules +
+**Split by home: tabular → Postgres (`src/database`). Execution prose → curated `wiki/` (rules +
 templates + `wiki/weekly-forecasts/` + `wiki/validations/`), on the `live` branch.** Claude Code reads/writes `wiki/` with native file tools;
 git is the audit trail. The **deployed `src/` container never reads a `.md`.**
 
@@ -179,17 +179,17 @@ headless on **DB + config alone**. Markdown matters only to the AI leg and to yo
 | **Tabular** — ohlc, macro, market, news, econ, zone_ledger, zone_outcome, trade_outcome, gld_holdings | **Postgres** (`src/`) | pipeline writes; AI reads via MCP `sql_query`/`get_brief`; AI writes structured via `publish_zone`/`write_verdict` | Queryable, frontend + order-gen read it, source of truth for every number. |
 | **Execution rules + thinking pattern** — curated `wiki/*` (constitution, per-instrument confluence + profile, macro, calibration, setup_library, currency_exposure, templates) | **repo, `live` branch** | you + Claude Code hand-edit (native `Edit`); `git diff` = audit | Only execution-context md. Not a copy of the parent `wiki/`. |
 | **Weekly forecast prose** — `wiki/weekly-forecasts/{YYYYWNN}/{instrument}.md` | **repo, `live` branch** | Claude Code `/weekly` writes (native `Write`) + `git commit`; reads its own prior output back as context | AI-owned output trail, seeded from the parent repo's history at migration (§ copy-in below). Structured zones go to DB via `publish_zone`. |
-| **Validation prose** — `wiki/validations/{YYYYMMDD}/{instrument}.md` | **repo, `live` branch** | Claude Code `/validate` writes (native `Write`) + `git commit`; reads its own prior output back as context | AI-owned output trail, seeded from the parent repo's history at migration (§ copy-in below). Structured verdicts go to DB via `write_verdict`. |
+| **Validation prose** — `wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md` | **repo, `live` branch** | Claude Code `/validate` writes (native `Write`) + `git commit`; reads its own prior output back as context | AI-owned output trail, seeded from the parent repo's history at migration (§ copy-in below). Structured verdicts go to DB via `write_verdict`. |
 
 **Compact — `wiki/` is EXECUTION CONTEXT ONLY.** Nothing that isn't used to run `/weekly` or
 `/validate` lives here. Build it as a **curated skeleton**, not a copy of the parent repo's `wiki/`.
 Allowed md only:
-- `system/core/{constitution,calibration,setup_library,currency_exposure}.md`
-- `system/core/macro/yield_environment.md`
+- `system/{constitution,calibration,setup_library,currency_exposure}.md`
+- `system/yield_environment.md`
 - `system/{instrument}/{confluence_criteria,*_profile}.md`
 - `templates/{weekly_forecast,daily_validation}.md`
 - `weekly-forecasts/{YYYYWNN}/{instrument}.md` written by swing-agent `/weekly` (e.g. `2026W27/xauusd.md`)
-- `validations/{YYYYMMDD}/{instrument}.md` written by swing-agent `/validate` (e.g. `20260704/xauusd.md`)
+- `validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md` written by swing-agent `/validate` (e.g. `20260704/xauusd.md`)
 
 Excluded from `swing-agent/wiki/`:
 - `_HOT.md`, `_INDEX.md` — boot/nav state. The app boots from DB + config, not a markdown state file.
@@ -206,7 +206,8 @@ draft of this plan). Source: parent repo's `forecasts/weekly/{instrument}/YYYY-W
 `forecasts/daily/{instrument}/YYYY-MM-DD.md`. Transform on copy: old layout is
 instrument-then-date; new layout is date-then-instrument — `forecasts/weekly/xauusd/2026-W27.md` →
 `wiki/weekly-forecasts/2026W27/xauusd.md`, `forecasts/daily/xauusd/2026-06-08.md` →
-`wiki/validations/20260608/xauusd.md`. Content copied verbatim (no rewrite); only the path changes.
+`wiki/validations/202606/20260608/xauusd.md` (validations add a `YYYYMM` month-grouping level
+above the day). Content copied verbatim (no rewrite); only the path changes.
 
 **Can it all move to Postgres instead?** Technically yes (a `wiki` table, a `forecast` table). But
 you'd lose `git diff`/blame on rule changes (the audit backbone) and Claude Code's native file I/O.
@@ -303,7 +304,7 @@ in the repo — no `read_wiki`, `publish_forecast`, or `write_validation` MCP to
   `wiki/weekly-forecasts/{week}/{inst}.md` → `publish_zone` for each published zone.
 - **Hourly validate** (`/validate`): read rules + this week's forecast from `wiki/` → `get_brief`
   (carries the mechanical verdict + limit price) + own web search for news/macro → confirm-or-override
-  the bias-flip / re-forecast call → `git`-write `wiki/validations/{date}/{inst}.md` →
+  the bias-flip / re-forecast call → `git`-write `wiki/validations/{month}/{date}/{inst}.md` →
   `write_verdict`.
 - **Ad-hoc context / research** (you ask): `get_brief` / `sql_query` / `run_backtest` / `run_replay`
   → analysis returned to you. swing-agent stays compact (no `research/` folder); persist any writeup
@@ -343,8 +344,8 @@ two writers never touch the same file.
 
 | Writer | Owns (writes only) | Reads |
 |---|---|---|
-| `/weekly` (manual, laptop) | `wiki/weekly-forecasts/{week}/{inst}.md`, `wiki/system/core/macro/yield_environment.md` | `wiki/*` rules, last swing-agent forecast |
-| `/validate` (hourly routine) | `wiki/validations/{date}/{inst}.md` — **nothing else** | `wiki/*` rules, this week's weekly forecast, `get_brief` |
+| `/weekly` (manual, laptop) | `wiki/weekly-forecasts/{week}/{inst}.md`, `wiki/system/yield_environment.md` | `wiki/*` rules, last swing-agent forecast |
+| `/validate` (hourly routine) | `wiki/validations/{month}/{date}/{inst}.md` — **nothing else** | `wiki/*` rules, this week's weekly forecast, `get_brief` |
 
 Weekly and daily forecast paths never overlap (different top-level dirs). Within one
 `weekly-forecasts/{week}/` folder, each instrument's `/weekly` run writes a distinct `{inst}.md`
@@ -392,7 +393,7 @@ reconcile can flag any `zone_ledger` row with no matching weekly/validation outp
 
 **0.2 Postgres bootstrap — DONE 2026-07-04**
 - Add `src/docker-compose.yml` with Postgres only.
-- Add `src/postgres/init.sql`.
+- Add `src/database/init.sql`.
 - Add `.env.example`; keep real `.env` local only.
 - Add `pg_dump` backup command equivalent to current `db_guard.py` retention policy.
 
@@ -505,7 +506,7 @@ known backtests reproduce. Rollback = Claude Code returns to local scripts.
 
 **3.3 Laptop routine — CODE READY / EXTERNAL ACTIVATION**
 - Schedule hourly `/validate` on laptop first.
-- Validate owns only `wiki/validations/{date}/{inst}.md`.
+- Validate owns only `wiki/validations/{month}/{date}/{inst}.md`.
 - Run manual shadow compare for several sessions before trusting live order path.
 - Added `ROUTINES.md` with DB-first/git-second contract, laptop validate route, weekly route,
   cloud dry-run, and rollback.
@@ -593,7 +594,7 @@ skills** — they read rules and write forecasts as **native repo files** (uncha
 their *data* calls (running local scripts) for MCP tools (`get_brief`, `sql_query`, `run_gate`,
 `run_backtest`, `publish_zone`, `write_verdict`). Judgment prose unchanged.
 
-**New code:** `docker-compose.yml`, `postgres/init.sql`, `scheduler.py`, the **MCP server** (data +
+**New code:** `docker-compose.yml`, `database/init.sql`, `scheduler.py`, the **MCP server** (data +
 compute + structured-write tools: `get_brief`, `sql_query`, `run_gate`, `get_news`/`get_econ`,
 `get_calibration`, `run_backtest`, `run_replay`, `run_calibration`, `compute_indicators`,
 `publish_zone`, `write_verdict` — with server-side gate enforcement + `zone_id` idempotency), and the

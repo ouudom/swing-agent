@@ -5,7 +5,7 @@ Backfill swing-agent Postgres from the current SQLite canonical store.
 Run from repo root or swing-agent/src:
   python swing-agent/src/scripts/backfill_sqlite_to_postgres.py
 
-Requires Postgres schema already initialized from postgres/init.sql.
+Requires Postgres schema already initialized from database/init.sql.
 """
 from __future__ import annotations
 

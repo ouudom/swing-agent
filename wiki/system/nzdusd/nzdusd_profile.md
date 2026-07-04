@@ -3,7 +3,7 @@ type: system
 updated: 2026-06-10
 confidence: medium
 tags: [nzdusd, fx, macro, sessions, mean-reversion, commodity-fx]
-related: [constitution, confluence_criteria, ../audusd/audusd_profile, ../core/currency_exposure]
+related: [constitution, confluence_criteria, ../audusd/audusd_profile, ../currency_exposure]
 ---
 
 # NZDUSD Instrument Profile

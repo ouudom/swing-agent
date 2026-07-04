@@ -3,7 +3,7 @@ type: system
 updated: 2026-06-10
 confidence: medium
 tags: [audusd, fx, macro, sessions, mean-reversion, commodity-fx]
-related: [constitution, confluence_criteria, ../core/currency_exposure]
+related: [constitution, confluence_criteria, ../currency_exposure]
 ---
 
 # AUDUSD Instrument Profile

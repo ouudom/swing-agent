@@ -10,12 +10,12 @@ This repo is self-contained: **do not read or write the parent `swing-trading` r
 history, full `wiki/`, `scripts/`) when working here. `swing-agent/` is what deploys.
 
 ## Two Folders
-- **`wiki/`** — your execution context. Curated rules only: `wiki/system/core/constitution.md`
+- **`wiki/`** — your execution context. Curated rules only: `wiki/system/constitution.md`
   (risk/SL/TP/offset/multi-instrument table), `wiki/system/{instrument}/` (profile +
-  confluence_criteria), `wiki/system/core/calibration.md` (edge performance),
-  `wiki/system/core/yield_environment.md` (macro baseline), `wiki/templates/`. Plus your own
+  confluence_criteria), `wiki/system/calibration.md` (edge performance),
+  `wiki/system/yield_environment.md` (macro baseline), `wiki/templates/`. Plus your own
   output trail: `wiki/weekly-forecasts/{YYYYWNN}/{instrument}.md` (e.g. `2026W27/xauusd.md`) and
-  `wiki/validations/{YYYYMMDD}/{instrument}.md` (e.g. `20260704/xauusd.md`).
+  `wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md` (e.g. `20260704/xauusd.md`).
   **Nothing else lives here** — no `_HOT.md`, `_INDEX.md`, `decisions.md`, no research/history
   dump. Never add a parallel context file; update in place.
 - **`src/`** — the deployed app: deterministic pipeline scripts, Postgres schema, scheduler,
@@ -45,7 +45,7 @@ not by your judgment alone.
 2. Decide (zone selection / bias-flip / re-forecast / verdict) — this is the part that needs you.
 3. **Structured write through MCP first** (`publish_zone` / `write_verdict`) — this is the durable
    record even if the next step fails.
-4. Write markdown to `wiki/weekly-forecasts/{week}/{instrument}.md` or `wiki/validations/{date}/{instrument}.md`.
+4. Write markdown to `wiki/weekly-forecasts/{week}/{instrument}.md` or `wiki/validations/{month}/{date}/{instrument}.md`.
 5. `git add` + commit + push on the **`live` branch**.
 
 If the DB write succeeds but git fails: **do not re-call the MCP write with a new `run_id`.**
@@ -53,8 +53,8 @@ Reuse the same `run_id`, fix git, then run reconcile (`src/scripts/reconcile_db_
 
 ## Path Ownership (why `live` never conflicts)
 - `/weekly` (you, manual) owns `wiki/weekly-forecasts/{week}/{instrument}.md` +
-  `wiki/system/core/macro/yield_environment.md`.
-- `/validate` (you, hourly routine) owns `wiki/validations/{date}/{instrument}.md` — nothing else.
+  `wiki/system/yield_environment.md`.
+- `/validate` (you, hourly routine) owns `wiki/validations/{month}/{date}/{instrument}.md` — nothing else.
 These never overlap, so both can read/write `live` without merge conflicts. Full contract:
 `ROUTINES.md`.
 

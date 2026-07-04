@@ -3,7 +3,7 @@ type: system
 updated: 2026-06-10
 confidence: medium
 tags: [usdcad, fx, usd-base, oil, macro, sessions, mean-reversion]
-related: [constitution, confluence_criteria, ../core/currency_exposure]
+related: [constitution, confluence_criteria, ../currency_exposure]
 ---
 
 # USDCAD Instrument Profile

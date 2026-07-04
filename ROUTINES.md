@@ -6,7 +6,7 @@ Postgres. Claude Code owns prose in `wiki/`.
 ## Ownership
 
 - Weekly writes only `wiki/weekly-forecasts/{YYYYWNN}/{instrument}.md` (e.g. `2026W27/xauusd.md`).
-- Validate writes only `wiki/validations/{YYYYMMDD}/{instrument}.md` (e.g. `20260704/xauusd.md`).
+- Validate writes only `wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md` (e.g. `20260704/xauusd.md`).
 - Structured DB write happens first through MCP; markdown commit happens second.
 - Reconcile flags any split-brain after retries.
 
@@ -23,7 +23,7 @@ export MCP_AUTH_TOKEN=<token>
 # 2. Call MCP get_brief/run_gate/compute_indicators.
 # 3. Decide verdict.
 # 4. MCP write_verdict.
-# 5. Write wiki/validations/{YYYYMMDD}/{instrument}.md.
+# 5. Write wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md.
 # 6. git add + commit + push.
 ```
 

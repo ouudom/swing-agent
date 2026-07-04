@@ -4,7 +4,7 @@
 (EUR vs GBP rate/policy differential), not DGS2/DXY/VIX-risk-off. The macro block below is a
 PLACEHOLDER inherited from _fx_base so the pipeline runs; the real EUR-GBP macro model
 (ECB−BoE policy diff, German–UK yield spread) is EG2 of the onboarding plan and must be
-rebuilt + backtested before EURGBP trades live. See wiki/system/core/currency_exposure.md
+rebuilt + backtested before EURGBP trades live. See wiki/system/currency_exposure.md
 (Architecture B / EURGBP onboarding) and decisions.md D022.
 
 Status: EG1 (config + data) for the EG3 go/no-go backtest. NOT yet a live tradable instrument.
