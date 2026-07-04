@@ -21,9 +21,9 @@ defaults:
 
 ```bash
 docker compose -f src/docker-compose.yml run --rm pipeline \
-  python src/scripts/backfill_sqlite_to_postgres.py
+  python src/engine/scripts/ops/backfill_sqlite_to_postgres.py
 docker compose -f src/docker-compose.yml run --rm pipeline \
-  python src/scripts/diff_sqlite_postgres.py
+  python src/engine/scripts/ops/diff_sqlite_postgres.py
 ```
 
 Place the migration SQLite file at `data/database/index.db` first, or restore a Postgres dump instead.
@@ -33,14 +33,14 @@ Apply schema migrations to an existing Postgres volume:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/apply_postgres_migrations.py
+  python src/engine/scripts/ops/apply_postgres_migrations.py
 ```
 
 ## Backup
 
 ```bash
 cd src
-./scripts/backup_postgres.sh
+./engine/scripts/ops/backup_postgres.sh
 ```
 
 ## Pipeline Scheduler
@@ -114,7 +114,7 @@ Parity check:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/mcp_parity_check.py --url http://mcp-server:8765 --token dev-token \
+  python src/engine/scripts/ops/mcp_parity_check.py --url http://mcp-server:8765 --token dev-token \
   --instrument eurusd --date 2026-07-04
 ```
 
@@ -122,12 +122,12 @@ Reconcile DB versus git prose:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/reconcile_db_git.py
+  python src/engine/scripts/ops/reconcile_db_git.py
 ```
 
 Notification dry run:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/send_notifications.py --dry-run
+  python src/engine/scripts/ops/send_notifications.py --dry-run
 ```

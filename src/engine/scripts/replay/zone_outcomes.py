@@ -29,8 +29,8 @@ Shadow-trade model (simplifications, deliberately documented):
              Terminal statuses flip the ledger row to RESOLVED.
 
 Usage:
-    bash scripts/pyrun.sh scripts/zone_outcomes.py            # resolve all + summary
-    bash scripts/pyrun.sh scripts/zone_outcomes.py --week 2026-W24
+    bash scripts/pyrun.sh scripts/replay/zone_outcomes.py            # resolve all + summary
+    bash scripts/pyrun.sh scripts/replay/zone_outcomes.py --week 2026-W24
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # for `config.*` imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # scripts root, for `db`/`config.*` imports
 
 import db  # noqa: E402
 from zone_ledger import load_ledger, save_ledger  # noqa: E402

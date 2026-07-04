@@ -23,8 +23,8 @@ Caveat: FX mean-reversion reading (oversold→long fade). xauusd E0 is continuat
 Scale-invariant in s, so the ATR multiplier only shifts fill-rate, not the cross-arm comparison.
 
 Usage:
-  bash scripts/pyrun.sh scripts/backtest_entry_sim.py --instrument all
-  bash scripts/pyrun.sh scripts/backtest_entry_sim.py --instrument eurusd --out wiki/research/general/entry-sim-backtest.md
+  bash scripts/pyrun.sh scripts/backtest/backtest_entry_sim.py --instrument all
+  bash scripts/pyrun.sh scripts/backtest/backtest_entry_sim.py --instrument eurusd --out wiki/research/general/entry-sim-backtest.md
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from backtest_signals import (  # noqa: E402

@@ -475,7 +475,7 @@ orders yet.
 **2.4 Manual parity test — DONE 2026-07-04**
 - Hand-run `/validate` for one pair using MCP data.
 - Run one known backtest (offset session or E0 variants) and compare published result table.
-- Added `src/scripts/mcp_parity_check.py`.
+- Added `src/engine/scripts/ops/mcp_parity_check.py`.
 - EURUSD parity passed:
   - MCP `get_brief` latest OHLC + zone/trade counts match local DB.
   - MCP `compute_indicators` matches local formula output.
@@ -501,7 +501,7 @@ known backtests reproduce. Rollback = Claude Code returns to local scripts.
 **3.2 Reconcile tools — DONE 2026-07-04**
 - DB↔git checker: ledger rows without matching `wiki/weekly-forecasts/*` / `wiki/validations/*`, and output files without DB rows.
 - Routine retry contract: DB write first, md commit second, reconcile if push fails.
-- Added `src/scripts/reconcile_db_git.py`.
+- Added `src/engine/scripts/ops/reconcile_db_git.py`.
 - Scheduler runs reconcile nightly; strict mode available for CI/routines.
 
 **3.3 Laptop routine — CODE READY / EXTERNAL ACTIVATION**

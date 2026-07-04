@@ -42,7 +42,7 @@ def engine_script(name: str) -> str:
 
 
 def app_script(name: str) -> str:
-    return f"src/scripts/{name}"
+    return f"src/engine/scripts/ops/{name}"
 
 
 def run(command: list[str], timeout_s: int | None = None) -> CommandResult:
@@ -67,14 +67,14 @@ def pyrun(args: list[str], timeout_s: int | None = None) -> CommandResult:
 
 
 def weekly_pull(instrument: str, force: bool = False) -> CommandResult:
-    args = [engine_script("weekly_pull.py"), "--instrument", instrument]
+    args = [engine_script("pipeline/weekly_pull.py"), "--instrument", instrument]
     if force:
         args.append("--force")
     return pyrun(args, timeout_s=900)
 
 
 def zone_outcomes(week: str | None = None, instrument: str | None = None) -> CommandResult:
-    args = [engine_script("zone_outcomes.py")]
+    args = [engine_script("replay/zone_outcomes.py")]
     if week:
         args += ["--week", week]
     if instrument:
@@ -83,7 +83,7 @@ def zone_outcomes(week: str | None = None, instrument: str | None = None) -> Com
 
 
 def trade_outcome(week: str | None = None, instrument: str | None = None) -> CommandResult:
-    args = [engine_script("trade_outcome.py")]
+    args = [engine_script("replay/trade_outcome.py")]
     if week:
         args += ["--week", week]
     if instrument:
@@ -92,7 +92,7 @@ def trade_outcome(week: str | None = None, instrument: str | None = None) -> Com
 
 
 def calibration() -> CommandResult:
-    return pyrun([engine_script("calibration.py")], timeout_s=300)
+    return pyrun([engine_script("replay/calibration.py")], timeout_s=300)
 
 
 def brief_refresh(instrument: str) -> CommandResult:

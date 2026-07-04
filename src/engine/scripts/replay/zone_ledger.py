@@ -10,17 +10,17 @@ Store: `zone_ledger` table in data/database/index.db (DB-canonical; resolver fli
 status OPEN→RESOLVED). zone_id = {instrument}-{week}-{label}, e.g. gbpusd-2026-W24-PRIMARY.
 
 Usage:
-    bash scripts/pyrun.sh scripts/zone_ledger.py add \
+    bash scripts/pyrun.sh scripts/replay/zone_ledger.py add \
         --instrument gbpusd --week 2026-W24 --label PRIMARY --direction SHORT \
         --zone-bottom 1.3400 --zone-top 1.3447 --score 8.0 --conviction MEDIUM \
         [--invalidation-level 1.3460] [--tp-anchor 1.32866] [--notes "..."]
-    bash scripts/pyrun.sh scripts/zone_ledger.py validate \
+    bash scripts/pyrun.sh scripts/replay/zone_ledger.py validate \
         --zone-id gbpusd-2026-W24-PRIMARY --verdict ORDER_LIMIT \
         [--entry-confluence 7.5] [--limit-price 1.3452] [--date 2026-06-16] \
         [--e0]                # confirmation candle present → anchor may lock (D032)
         [--hard-block]        # on a hard-gate NO_TRADE/INVALIDATED → clears the anchor lock
         [--lock-hours 4]      # anchor-lock window (default 4h, clamped to 21:00 UTC)
-    bash scripts/pyrun.sh scripts/zone_ledger.py list [--week 2026-W24] [--status OPEN]
+    bash scripts/pyrun.sh scripts/replay/zone_ledger.py list [--week 2026-W24] [--status OPEN]
 
 Anchor lock (D030 follow-up; D032): an ORDER_LIMIT confirmed off a 1H/15M E0 (--e0) freezes its
 anchor for --lock-hours so the hourly /validate re-run stops whipsawing the limit. A no-E0 (50%
@@ -42,7 +42,7 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # for `db` import
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # scripts root, for `db` import
 import db  # noqa: E402
 
 LEDGER_CSV = Path("data/zone_ledger.csv")

@@ -2,9 +2,9 @@
 Backfill full FRED series history into the `macro_series` table (data/index.db).
 
 Usage:
-  bash scripts/pyrun.sh scripts/backfill_fred.py                       # default series
-  bash scripts/pyrun.sh scripts/backfill_fred.py --series DFII10 DGS10
-  bash scripts/pyrun.sh scripts/backfill_fred.py --force               # refetch even if present
+  bash scripts/pyrun.sh scripts/backfill/backfill_fred.py                       # default series
+  bash scripts/pyrun.sh scripts/backfill/backfill_fred.py --series DFII10 DGS10
+  bash scripts/pyrun.sh scripts/backfill/backfill_fred.py --force               # refetch even if present
 """
 import os
 import sys
@@ -13,7 +13,7 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # scripts root
 import db
 
 load_dotenv()

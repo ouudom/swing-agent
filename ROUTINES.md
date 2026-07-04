@@ -49,14 +49,14 @@ export MCP_AUTH_TOKEN=<token>
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/reconcile_db_git.py
+  python src/engine/scripts/ops/reconcile_db_git.py
 ```
 
 Strict mode for CI/routine hard-fail:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/reconcile_db_git.py --strict
+  python src/engine/scripts/ops/reconcile_db_git.py --strict
 ```
 
 ## Notifications
@@ -65,7 +65,7 @@ MCP write tools queue `notification_event` rows for important events. Sender:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/send_notifications.py
+  python src/engine/scripts/ops/send_notifications.py
 ```
 
 The scheduler runs notification send every 5 minutes. If Telegram env is missing, it exits cleanly.

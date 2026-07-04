@@ -3,7 +3,7 @@
 Backfill swing-agent Postgres from the current SQLite canonical store.
 
 Run from repo root or swing-agent/src:
-  python swing-agent/src/scripts/backfill_sqlite_to_postgres.py
+  python swing-agent/src/engine/scripts/ops/backfill_sqlite_to_postgres.py
 
 Requires Postgres schema already initialized from database/init.sql.
 """
@@ -39,7 +39,7 @@ TABLES = [
 
 def repo_root() -> Path:
     here = Path(__file__).resolve()
-    return here.parents[2]
+    return here.parents[4]
 
 
 def load_env() -> None:

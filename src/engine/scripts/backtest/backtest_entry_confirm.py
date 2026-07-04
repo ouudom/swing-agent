@@ -22,9 +22,9 @@ CONTINUATION toward the zone — its row here is the mean-rev interpretation; re
 15M CHoCH leg NOT tested (data: only xauusd/usdjpy/gbpjpy hold deep 15M; majors keep ~recent only).
 
 Usage:
-  bash scripts/pyrun.sh scripts/backtest_entry_confirm.py --instrument all
-  bash scripts/pyrun.sh scripts/backtest_entry_confirm.py --instrument eurusd --horizons 6 12 24
-  bash scripts/pyrun.sh scripts/backtest_entry_confirm.py --instrument all --out wiki/research/general/entry-confirm-backtest.md
+  bash scripts/pyrun.sh scripts/backtest/backtest_entry_confirm.py --instrument all
+  bash scripts/pyrun.sh scripts/backtest/backtest_entry_confirm.py --instrument eurusd --horizons 6 12 24
+  bash scripts/pyrun.sh scripts/backtest/backtest_entry_confirm.py --instrument all --out wiki/research/general/entry-confirm-backtest.md
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 # reuse the vetted helpers — same definitions the signal scan used

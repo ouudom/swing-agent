@@ -29,8 +29,8 @@ with suspicion. s here is H1 ATR14 (scale-invariant), live SL is H4-based; the f
 maps to EC via the live formula only approximately.
 
 Usage:
-  bash scripts/pyrun.sh scripts/backtest_offset_session.py
-  bash scripts/pyrun.sh scripts/backtest_offset_session.py --wfill 24 --out wiki/research/general/offset-session-study.md
+  bash scripts/pyrun.sh scripts/backtest/backtest_offset_session.py
+  bash scripts/pyrun.sh scripts/backtest/backtest_offset_session.py --wfill 24 --out wiki/research/general/offset-session-study.md
 """
 
 from __future__ import annotations
@@ -41,8 +41,9 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "replay"))  # zone_outcomes.load_tf
 
 from backtest_signals import (  # noqa: E402
     atr, rsi, stoch_k, williams_r, keltner,

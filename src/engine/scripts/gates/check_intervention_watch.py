@@ -16,8 +16,8 @@ Claude maintains the JSON's jawboning[] from web search during /weekly JPY runs 
 verified_through forward (same discipline as cb_calendar).
 
 Usage:
-    bash scripts/pyrun.sh scripts/check_intervention_watch.py --instrument usdjpy --spot 160.5
-    bash scripts/pyrun.sh scripts/check_intervention_watch.py --instrument eurjpy --spot 185.2 --days 14
+    bash scripts/pyrun.sh scripts/gates/check_intervention_watch.py --instrument usdjpy --spot 160.5
+    bash scripts/pyrun.sh scripts/gates/check_intervention_watch.py --instrument eurjpy --spot 185.2 --days 14
 
 Exit codes: 0 = ran. 1 = JSON missing/unreadable, pair absent, or verified_through is
 before the query date (watch is stale → refresh from web search before trusting it).
@@ -31,7 +31,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-WATCH_JSON = Path(__file__).resolve().parent / "config" / "intervention_watch.json"
+WATCH_JSON = Path(__file__).resolve().parent.parent / "config" / "intervention_watch.json"  # scripts/config
 JPY_PAIRS = ["usdjpy", "eurjpy", "gbpjpy"]
 
 

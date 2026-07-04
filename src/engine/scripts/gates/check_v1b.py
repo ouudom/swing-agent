@@ -14,9 +14,9 @@ Zone is passed on the CLI by /validate (read from _HOT.md active zones).
 Run at each H4 boundary (00/04/08/12/16/20 UTC) — manually or via cron.
 
 Usage:
-    bash scripts/pyrun.sh scripts/check_v1b.py --direction SHORT --zone-top 3400 --zone-bottom 3380
-    bash scripts/pyrun.sh scripts/check_v1b.py --direction LONG  --zone-top 3300 --zone-bottom 3280 --buffer 5
-    bash scripts/pyrun.sh scripts/check_v1b.py --direction SHORT --zone-top 215.6 --zone-bottom 215.0 --atr-mult 0.25
+    bash scripts/pyrun.sh scripts/gates/check_v1b.py --direction SHORT --zone-top 3400 --zone-bottom 3380
+    bash scripts/pyrun.sh scripts/gates/check_v1b.py --direction LONG  --zone-top 3300 --zone-bottom 3280 --buffer 5
+    bash scripts/pyrun.sh scripts/gates/check_v1b.py --direction SHORT --zone-top 215.6 --zone-bottom 215.0 --atr-mult 0.25
 
 Exit codes: 0 intact / 2 breach.
 """
@@ -28,6 +28,8 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # scripts root, for `db` import
 
 
 def atr14_before(df: pd.DataFrame, cutoff: pd.Timestamp):

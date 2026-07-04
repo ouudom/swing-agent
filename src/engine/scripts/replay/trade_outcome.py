@@ -26,8 +26,8 @@ E0 = 1H pin/engulf OR RSI-reclaim toward zone direction on a bar touching the zo
 All signal math reused from backtest_signals; no lookahead (signals at/before fill).
 
 Usage:
-  bash scripts/pyrun.sh scripts/trade_outcome.py
-  bash scripts/pyrun.sh scripts/trade_outcome.py --week 2026-W25 --instrument audusd
+  bash scripts/pyrun.sh scripts/replay/trade_outcome.py
+  bash scripts/pyrun.sh scripts/replay/trade_outcome.py --week 2026-W25 --instrument audusd
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import db  # noqa: E402

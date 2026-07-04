@@ -22,9 +22,9 @@ Soft advisory extras:
 Gold (xauusd) stays OUT of the ledger — USD-priced but real-yield driven.
 
 Usage:
-  bash scripts/pyrun.sh scripts/fx_exposure.py --orders "eurusd:short:1,gbpusd:short:1"
-  bash scripts/pyrun.sh scripts/fx_exposure.py --live "eurusd:short:1" --candidate "gbpusd:short:1" --new-ec 6.5 --live-ecs "eurusd:7.5"
-  bash scripts/pyrun.sh scripts/fx_exposure.py --selftest
+  bash scripts/pyrun.sh scripts/advisory/fx_exposure.py --orders "eurusd:short:1,gbpusd:short:1"
+  bash scripts/pyrun.sh scripts/advisory/fx_exposure.py --live "eurusd:short:1" --candidate "gbpusd:short:1" --new-ec 6.5 --live-ecs "eurusd:7.5"
+  bash scripts/pyrun.sh scripts/advisory/fx_exposure.py --selftest
 """
 from __future__ import annotations
 import argparse

@@ -5,10 +5,10 @@ Resume-safe via manifest earliest_dt. Rate-limit safe (8 req/min).
 Storage: data/twelvedata/{symbol_no_slash}/{tf}.csv  +  _manifest.json
 
 Usage:
-  bash scripts/pyrun.sh scripts/backfill_twelvedata.py --tf 15min
-  bash scripts/pyrun.sh scripts/backfill_twelvedata.py --tf 15min --since 2020-01-01
-  bash scripts/pyrun.sh scripts/backfill_twelvedata.py --tf 15min --forward-only
-  bash scripts/pyrun.sh scripts/backfill_twelvedata.py --tf 1day --since 2005-01-01 --max-calls 5
+  bash scripts/pyrun.sh scripts/backfill/backfill_twelvedata.py --tf 15min
+  bash scripts/pyrun.sh scripts/backfill/backfill_twelvedata.py --tf 15min --since 2020-01-01
+  bash scripts/pyrun.sh scripts/backfill/backfill_twelvedata.py --tf 15min --forward-only
+  bash scripts/pyrun.sh scripts/backfill/backfill_twelvedata.py --tf 1day --since 2005-01-01 --max-calls 5
 """
 import os
 import sys
@@ -19,7 +19,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # scripts root
 from lib.ohlc_store import upsert, last_dt as _last_dt
 
 load_dotenv()

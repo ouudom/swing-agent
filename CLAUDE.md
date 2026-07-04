@@ -49,7 +49,7 @@ not by your judgment alone.
 5. `git add` + commit + push on the **`live` branch**.
 
 If the DB write succeeds but git fails: **do not re-call the MCP write with a new `run_id`.**
-Reuse the same `run_id`, fix git, then run reconcile (`src/scripts/reconcile_db_git.py`).
+Reuse the same `run_id`, fix git, then run reconcile (`src/engine/scripts/ops/reconcile_db_git.py`).
 
 ## Path Ownership (why `live` never conflicts)
 - `/weekly` (you, manual) owns `wiki/weekly-forecasts/{week}/{instrument}.md` +
@@ -68,7 +68,7 @@ anchor: confirmation candle CLOSE (E0 present, locked 4h) | 50% zone midpoint (n
 TP:     3.0R nearer zone | 4.0R further zone (distance-tiered, single limit); BE at +1.5R
 Friday: 13:00 UTC (NY open) cancel all unfilled limits; open positions keep running.
 ```
-These constants live in `src/engine/scripts/trade_outcome.py` (`TP_R_NEAR`, `TP_R_FAR`,
+These constants live in `src/engine/scripts/replay/trade_outcome.py` (`TP_R_NEAR`, `TP_R_FAR`,
 `_SESSION_MULT`, `friday_cutoff`) — read the code, don't hand-recompute.
 
 ## Docs Map

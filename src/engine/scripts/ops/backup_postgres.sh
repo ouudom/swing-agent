@@ -3,7 +3,7 @@ set -eu
 
 # Nightly Postgres backup. Keep last 7 compressed dumps.
 # Usage from swing-agent/src:
-#   ./scripts/backup_postgres.sh
+#   ./src/engine/scripts/ops/backup_postgres.sh
 
 BACKUP_DIR="${BACKUP_DIR:-./backups/postgres}"
 POSTGRES_HOST="${POSTGRES_HOST:-postgres}"

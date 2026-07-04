@@ -7,10 +7,10 @@ one hard-blocks or flags as caution. Web search supplements this; it never repla
 (the W24 ECB miss is why this file exists).
 
 Usage:
-    bash scripts/pyrun.sh scripts/check_cb_calendar.py                       # today, 7-day window
-    bash scripts/pyrun.sh scripts/check_cb_calendar.py --date 2026-06-11
-    bash scripts/pyrun.sh scripts/check_cb_calendar.py --days 10
-    bash scripts/pyrun.sh scripts/check_cb_calendar.py --instrument eurusd   # filter
+    bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py                       # today, 7-day window
+    bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py --date 2026-06-11
+    bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py --days 10
+    bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py --instrument eurusd   # filter
 
 Exit codes: 0 = ran (events or not). 1 = calendar file missing/unreadable or query
 date beyond a bank's verified_through (calendar can't be trusted for that window).
@@ -24,7 +24,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-CONFIG_DIR = Path(__file__).resolve().parent / "config"
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"  # scripts/config
 
 INSTRUMENTS = ["xauusd", "eurusd", "gbpusd", "eurgbp", "audusd", "nzdusd",
                "usdcad", "usdchf", "usdjpy", "eurjpy", "gbpjpy"]

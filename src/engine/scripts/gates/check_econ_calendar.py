@@ -15,9 +15,9 @@ pair→country map below may need a one-line tweak if the euro area shows as EU 
 verify against data/econ_calendar/calendar.csv.
 
 Usage:
-    bash scripts/pyrun.sh scripts/check_econ_calendar.py --instrument eurusd --days 10
-    bash scripts/pyrun.sh scripts/check_econ_calendar.py --instrument eurusd --date 2026-06-15
-    bash scripts/pyrun.sh scripts/check_econ_calendar.py --retro 2026-W23 --instrument eurusd
+    bash scripts/pyrun.sh scripts/gates/check_econ_calendar.py --instrument eurusd --days 10
+    bash scripts/pyrun.sh scripts/gates/check_econ_calendar.py --instrument eurusd --date 2026-06-15
+    bash scripts/pyrun.sh scripts/gates/check_econ_calendar.py --retro 2026-W23 --instrument eurusd
 
 Exit codes: 0 = ran. 1 = calendar CSV missing or its coverage ends before the window end
 (stale → re-run weekly_pull.py to refetch before trusting "no events").
@@ -31,6 +31,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # scripts root, for `db` import
 
 ECON_CSV = Path("data/econ_calendar/calendar.csv")
 

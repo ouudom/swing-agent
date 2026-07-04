@@ -20,8 +20,8 @@ FX mean-reversion reading; xauusd & usdjpy excluded from the POOLED row (fade mo
 shown per-pair. R is normalized (units of SL) so pooling across pairs is valid.
 
 Usage:
-  bash scripts/pyrun.sh scripts/backtest_e0_variants.py
-  bash scripts/pyrun.sh scripts/backtest_e0_variants.py --out wiki/research/general/e0-variants-backtest.md
+  bash scripts/pyrun.sh scripts/backtest/backtest_e0_variants.py
+  bash scripts/pyrun.sh scripts/backtest/backtest_e0_variants.py --out wiki/research/general/e0-variants-backtest.md
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from backtest_signals import (  # noqa: E402

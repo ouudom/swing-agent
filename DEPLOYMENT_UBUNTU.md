@@ -91,9 +91,9 @@ Postgres dump instead.
 
 ```bash
 docker compose -f src/docker-compose.yml run --rm pipeline \
-  python src/scripts/backfill_sqlite_to_postgres.py
+  python src/engine/scripts/ops/backfill_sqlite_to_postgres.py
 docker compose -f src/docker-compose.yml run --rm pipeline \
-  python src/scripts/diff_sqlite_postgres.py
+  python src/engine/scripts/ops/diff_sqlite_postgres.py
 ```
 
 Expected: every table prints `OK`. `lost_and_found` is intentionally excluded.
@@ -102,7 +102,7 @@ For existing volumes after upgrades:
 
 ```bash
 docker compose -f src/docker-compose.yml exec -T pipeline \
-  python src/scripts/apply_postgres_migrations.py
+  python src/engine/scripts/ops/apply_postgres_migrations.py
 ```
 
 ## 6. Start Pipeline + MCP
@@ -196,7 +196,7 @@ Manual backup:
 
 ```bash
 cd src
-./scripts/backup_postgres.sh
+./engine/scripts/ops/backup_postgres.sh
 ```
 
 Cron example:
@@ -206,7 +206,7 @@ crontab -e
 ```
 
 ```cron
-0 23 * * 1-5 cd ~/apps/swing-agent/src && ./scripts/backup_postgres.sh >> backups/backup.log 2>&1
+0 23 * * 1-5 cd ~/apps/swing-agent/src && ./engine/scripts/ops/backup_postgres.sh >> backups/backup.log 2>&1
 ```
 
 ## 9. Update Deploy

@@ -33,9 +33,9 @@ FORBIDDEN_SQL = re.compile(
 )
 
 BACKTEST_ALLOWLIST = {
-    "offset_session": ["src/engine/scripts/backtest_offset_session.py"],
-    "e0_variants": ["src/engine/scripts/backtest_e0_variants.py"],
-    "entry_sim": ["src/engine/scripts/backtest_entry_sim.py"],
+    "offset_session": ["src/engine/scripts/backtest/backtest_offset_session.py"],
+    "e0_variants": ["src/engine/scripts/backtest/backtest_e0_variants.py"],
+    "entry_sim": ["src/engine/scripts/backtest/backtest_entry_sim.py"],
 }
 
 BACKTEST_ARG_ALLOWLIST = {
@@ -45,11 +45,11 @@ BACKTEST_ARG_ALLOWLIST = {
 }
 
 GATE_ALLOWLIST = {
-    "econ_calendar": ["src/engine/scripts/check_econ_calendar.py"],
-    "cb_calendar": ["src/engine/scripts/check_cb_calendar.py"],
-    "intervention_watch": ["src/engine/scripts/check_intervention_watch.py"],
-    "structured_news_event": ["src/engine/scripts/check_structured_news_event.py"],
-    "v1b": ["src/engine/scripts/check_v1b.py"],
+    "econ_calendar": ["src/engine/scripts/gates/check_econ_calendar.py"],
+    "cb_calendar": ["src/engine/scripts/gates/check_cb_calendar.py"],
+    "intervention_watch": ["src/engine/scripts/gates/check_intervention_watch.py"],
+    "structured_news_event": ["src/engine/scripts/gates/check_structured_news_event.py"],
+    "v1b": ["src/engine/scripts/gates/check_v1b.py"],
 }
 
 

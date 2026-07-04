@@ -20,9 +20,9 @@ applied, every gate evaluated as a non-suppressing flag → counterfactual R per
 from the retired hand-logged `trade` table (n≈2, never enough to calibrate).
 
 Usage:
-    bash scripts/pyrun.sh scripts/calibration.py                 # full report, min-n 10
-    bash scripts/pyrun.sh scripts/calibration.py --min-n 5
-    bash scripts/pyrun.sh scripts/calibration.py --json data/calibration/summary.json
+    bash scripts/pyrun.sh scripts/replay/calibration.py                 # full report, min-n 10
+    bash scripts/pyrun.sh scripts/replay/calibration.py --min-n 5
+    bash scripts/pyrun.sh scripts/replay/calibration.py --json data/calibration/summary.json
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # scripts root
 
 import db  # noqa: E402
 from zone_outcomes import COMPLETED_STATUSES, OUTCOMES_CSV, R1_BUCKETS  # noqa: E402
@@ -129,7 +129,7 @@ def build(df: pd.DataFrame, min_n: int) -> tuple[str, dict]:
         "related: [zone_outcomes, zone_ledger, constitution]", "---", "",
         "# Calibration — Edge Performance",
         "",
-        f"> **AUTO-GENERATED** by `scripts/calibration.py` at {now}. Do not hand-edit — "
+        f"> **AUTO-GENERATED** by `scripts/replay/calibration.py` at {now}. Do not hand-edit — "
         "re-run the script. Source: `data/database/index.db` (`zone_outcome`/`trade_outcome` tables).",
         "",
         f"Zones tracked: **{len(df)}** · completed shadow trades: **{len(completed)}** · "
@@ -206,7 +206,7 @@ def build_r2(min_n: int) -> tuple[str, dict]:
     out = {"completed_n": 0}
     parts = ["## R2 — Entry Confluence (trade_outcome replay)", ""]
     if to is None or to.empty:
-        parts.append("_No trade_outcome rows — run `scripts/trade_outcome.py` first._\n")
+        parts.append("_No trade_outcome rows — run `scripts/replay/trade_outcome.py` first._\n")
         return "\n".join(parts), out
 
     to["r_result"] = pd.to_numeric(to.get("r_result"), errors="coerce")

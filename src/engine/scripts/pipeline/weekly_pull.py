@@ -2,14 +2,14 @@
 Multi-instrument data pipeline — orchestrator (fetch + compute + snapshot write).
 
 Usage:
-    bash scripts/pyrun.sh scripts/weekly_pull.py                        # xauusd, honors cache
-    bash scripts/pyrun.sh scripts/weekly_pull.py --force                # xauusd, re-fetch full
-    bash scripts/pyrun.sh scripts/weekly_pull.py --instrument xauusd    # explicit instrument
+    bash scripts/pyrun.sh scripts/pipeline/weekly_pull.py                        # xauusd, honors cache
+    bash scripts/pyrun.sh scripts/pipeline/weekly_pull.py --force                # xauusd, re-fetch full
+    bash scripts/pyrun.sh scripts/pipeline/weekly_pull.py --instrument xauusd    # explicit instrument
 
 Split entry points (preferred for granular control):
     scripts/fetch.py    — network IO only (TD 15M + FRED)            → CSVs
     scripts/compute.py  — indicators + snapshot, no TD/FRED network  → pull file
-    scripts/weekly_pull.py — this file: cache gate → fetch → compute (back-compat)
+    scripts/pipeline/weekly_pull.py — this file: cache gate → fetch → compute (back-compat)
 
 Pipeline:
     TD 15M fetch (1 API call) → append 15min.csv → resample → 1h/4h/1day.csv
@@ -59,7 +59,7 @@ def load_instrument(name: str):
         raise ValueError(f"Unknown instrument '{name}'. Registered: {list(REGISTERED_INSTRUMENTS)}")
 
     # Add project root to sys.path so instruments/ package is importable
-    _root = str(Path(__file__).resolve().parents[1])
+    _root = str(Path(__file__).resolve().parents[2])
     if _root not in sys.path:
         sys.path.insert(0, _root)
 
@@ -98,7 +98,9 @@ def is_market_closed_utc(now=None):
         return True
     return False
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
+_SCRIPTS_ROOT = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(_SCRIPTS_ROOT, "lib"))
+sys.path.insert(0, _SCRIPTS_ROOT)  # for `db` import below (canonical store — not a fallback)
 from ohlc_store import upsert, last_dt as manifest_last_dt, filter_trading_session
 from structure import structure_events, time_at_price
 
@@ -187,7 +189,7 @@ def fetch_15m(force=False):
         if gap_bars > MAX_15M_OUTPUTSIZE:
             raise ValueError(
                 f"15M gap since {last} exceeds one API page ({gap_bars} bars > {MAX_15M_OUTPUTSIZE}). "
-                f"Run: bash scripts/pyrun.sh scripts/backfill_twelvedata.py --tf 15min --forward-only"
+                f"Run: bash scripts/pyrun.sh scripts/backfill/backfill_twelvedata.py --tf 15min --forward-only"
             )
         outputsize = max(200, gap_bars)
     r = requests.get("https://api.twelvedata.com/time_series", params={

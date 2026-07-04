@@ -36,7 +36,7 @@ TABLES = {
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[4]
 
 
 def load_env() -> None:

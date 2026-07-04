@@ -17,7 +17,7 @@ ZONE_ID_RE = re.compile(r"\b([a-z]{6}|xauusd)-\d{4}-W\d{2}-[A-Z0-9_-]+\b")
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[4]
 
 
 def connect():

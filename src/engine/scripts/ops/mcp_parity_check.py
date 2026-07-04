@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "src" / "engine" / "scripts"))
 
 import db  # noqa: E402
@@ -138,19 +138,19 @@ def main(argv: list[str]) -> int:
 
     gate_args = ["--instrument", instrument, "--date", args.date, "--days", "2"]
     mcp_gate = call(args.url, args.token, "run_gate", {"name": "econ_calendar", "args": gate_args})
-    local_gate = run_local(["src/engine/scripts/check_econ_calendar.py", *gate_args], timeout=120)
+    local_gate = run_local(["src/engine/scripts/gates/check_econ_calendar.py", *gate_args], timeout=120)
     assert_equal("econ gate returncode", mcp_gate["returncode"], local_gate.returncode)
     assert_equal("econ gate stdout", mcp_gate["stdout_tail"], local_gate.stdout)
 
     bt_args = ["--instrument", instrument, "--tf", "H1"]
     mcp_bt = call(args.url, args.token, "run_backtest", {"name": "e0_variants", "args": bt_args})
-    local_bt = run_local(["src/engine/scripts/backtest_e0_variants.py", *bt_args], timeout=600)
+    local_bt = run_local(["src/engine/scripts/backtest/backtest_e0_variants.py", *bt_args], timeout=600)
     assert_equal("backtest returncode", mcp_bt["returncode"], local_bt.returncode)
     assert_equal("backtest stdout", mcp_bt["stdout_tail"], local_bt.stdout[-8000:])
 
     offset_args = ["--wfill", "12"]
     mcp_offset = call(args.url, args.token, "run_backtest", {"name": "offset_session", "args": offset_args})
-    local_offset = run_local(["src/engine/scripts/backtest_offset_session.py", *offset_args], timeout=600)
+    local_offset = run_local(["src/engine/scripts/backtest/backtest_offset_session.py", *offset_args], timeout=600)
     assert_equal("offset backtest returncode", mcp_offset["returncode"], local_offset.returncode)
     assert_equal("offset backtest stdout", mcp_offset["stdout_tail"], local_offset.stdout[-8000:])
 
