@@ -76,7 +76,7 @@ services:
     working_dir: /app
     command: ["python", "src/mcp-server/server_mcp.py"]
     ports:
-      - "127.0.0.1:${MCP_NATIVE_PORT:-8766}:8766"
+      - "${MCP_NATIVE_PORT:-8766}:8766"
     volumes:
       - .:/app
 
