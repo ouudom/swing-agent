@@ -102,7 +102,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${DASHBOARD_PORT:-8888}:8888"
+      - "${DASHBOARD_PORT:-8888}:8888"
     # No bind mount: self-contained image (built Vite bundle + API), so `.:/app`
     # doesn't shadow the baked-in dist. Rebuild the image to ship UI changes.
 
