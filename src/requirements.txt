@@ -1,0 +1,9 @@
+requests
+pandas
+numpy
+yfinance
+python-dotenv
+psycopg[binary]
+apscheduler
+mcp>=1.2
+uvicorn
