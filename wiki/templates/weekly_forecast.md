@@ -8,7 +8,7 @@ related: [constitution, confluence_criteria]
 
 # Weekly Forecast Template (v2 — Trading Zones)
 
-File: `weekly-forecasts/<instrument>/YYYY-WNN.md` — immutable after Monday open. Claude writes
+File: `weekly-forecasts/YYYYWNN/<instrument>.md` — immutable after Monday open. Claude writes
 markdown directly (no DB). Goal: publish up to 3 Trading Zones (≤1 counter), each scored by Zone
 Confluence. Instrument ∈ {xauusd, eurusd, gbpusd, eurgbp, audusd, nzdusd, usdcad, usdchf, usdjpy, eurjpy, gbpjpy}; xauusd=momentum, FX=mean-reversion (D021).
 

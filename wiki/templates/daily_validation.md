@@ -8,7 +8,7 @@ related: [constitution, weekly_forecast]
 
 # Daily Validation Template (v2)
 
-File: `validations/<instrument>/YYYY-MM-DD.md` — one per day, append-style. Claude writes
+File: `validations/YYYYMMDD/<instrument>.md` — one per day, append-style. Claude writes
 markdown directly (no DB). Runs 07:30 UTC before London open. Zone box/direction never change; Entry
 Confluence + SL + offset + limit recompute daily. Instrument ∈ {xauusd, eurusd, gbpusd, eurgbp, audusd, nzdusd, usdcad, usdchf, usdjpy, eurjpy, gbpjpy}.
 
