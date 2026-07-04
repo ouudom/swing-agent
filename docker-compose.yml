@@ -14,8 +14,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./backups:/backups
+      - ./src/database/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./src/backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -48,37 +48,7 @@ services:
     working_dir: /app
     command: ["python", "src/pipeline/scheduler.py"]
     volumes:
-      - ..:/app
-
-  mcp-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: swing-agent-mcp-server
-    restart: unless-stopped
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      SWING_AGENT_REPO_ROOT: /app
-      MCP_HOST: 0.0.0.0
-      MCP_PORT: 8765
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-dev-token}
-      SWING_DB_BACKEND: postgres
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
-      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    working_dir: /app
-    command: ["python", "src/mcp-server/server.py"]
-    ports:
-      - "127.0.0.1:${MCP_PORT:-8765}:8765"
-    volumes:
-      - ..:/app
+      - .:/app
 
   mcp-native:
     build:
@@ -108,11 +78,11 @@ services:
     ports:
       - "127.0.0.1:${MCP_NATIVE_PORT:-8766}:8766"
     volumes:
-      - ..:/app
+      - .:/app
 
   dashboard:
     build:
-      context: ./dashboard
+      context: ./src/dashboard
       dockerfile: Dockerfile
     container_name: swing-agent-dashboard
     restart: unless-stopped
@@ -133,7 +103,7 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${DASHBOARD_PORT:-8888}:8888"
-    # No bind mount: self-contained image (built Vite bundle + API), so `..:/app`
+    # No bind mount: self-contained image (built Vite bundle + API), so `.:/app`
     # doesn't shadow the baked-in dist. Rebuild the image to ship UI changes.
 
 volumes:

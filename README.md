@@ -11,7 +11,7 @@ Two folders:
   (`weekly-forecasts/`, `validations/`). Nothing else lives here — no history dumps, no
   decisions log, no `_HOT`/`_INDEX`.
 - **`src/`** — the deployed app: deterministic pipeline scripts, Postgres schema, scheduler,
-  and two MCP transports (`mcp-server` REST on :8765, `mcp-native` on :8766 for Claude Code).
+  and the native MCP server (`mcp-native` on :8766, `/mcp` endpoint, for Claude Code).
 
 ## Quick links
 
@@ -21,7 +21,7 @@ Two folders:
   git workflow, deterministic-vs-AI split, migration status.
 - [`ROUTINES.md`](ROUTINES.md) — the Claude Code weekly/hourly routine contract against MCP.
 - [`src/README.md`](src/README.md) — app-level dev notes: services, one-shot jobs, MCP tool
-  reference, DB↔git reconcile/parity checks.
+  reference, DB↔git reconcile.
 
 ## Deploy scope
 

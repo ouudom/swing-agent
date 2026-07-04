@@ -19,7 +19,7 @@ history, full `wiki/`, `scripts/`) when working here. `swing-agent/` is what dep
   **Nothing else lives here** — no `_HOT.md`, `_INDEX.md`, `decisions.md`, no research/history
   dump. Never add a parallel context file; update in place.
 - **`src/`** — the deployed app: deterministic pipeline scripts, Postgres schema, scheduler,
-  two MCP transports. The container never reads a `.md`; it runs on Postgres + config only.
+  the native MCP server. The container never reads a `.md`; it runs on Postgres + config only.
 
 ## Storage Split (non-negotiable)
 **Postgres = canonical for every number** (OHLC, zones, outcomes, calibration, news, econ
@@ -27,10 +27,10 @@ calendar). **`wiki/` = canonical for every word** (rules, forecasts, validations
 a derived number in `wiki/` — recompute it via MCP each time.
 
 ## MCP — your only gateway to the app
-Two transports, same 15 tools, one Postgres backend:
-- `mcp-server` (REST, port 8765) — `curl`-style, `/call` + `/tools/<name>`.
-- `mcp-native` (native MCP, port 8766) — register via `claude mcp add --transport http
-  swing-agent http://<host>:8766/mcp --header "Authorization: Bearer $MCP_AUTH_TOKEN"`.
+One transport, 15 tools, one Postgres backend:
+- `mcp-native` (native MCP, Streamable HTTP, port 8766, `/mcp` endpoint) — register via
+  `claude mcp add --transport http swing-agent http://<host>:8766/mcp --header
+  "Authorization: Bearer $MCP_AUTH_TOKEN"`.
 
 Tools: `get_brief`, `get_zone_context` (full DB-native zone-scoring context for /weekly —
 structure/momentum/macro/ATR+SL/COT; replaces the old weekly_pull txt), `sql_query`

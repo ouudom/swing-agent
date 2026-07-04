@@ -2,9 +2,9 @@
 """
 tools.py — pure tool functions for the swing-agent read/compute/write surface.
 
-No transport here. Both the legacy REST server (`server.py`) and the native MCP
-server (`server_mcp.py`) import `TOOLS` (name -> callable) and the helpers from
-this module. Each function is typed so FastMCP can auto-derive its inputSchema.
+No transport here. `server_mcp.py` imports `TOOLS` (name -> callable) and the
+helpers from this module. Each function is typed so FastMCP can auto-derive its
+inputSchema.
 """
 from __future__ import annotations
 

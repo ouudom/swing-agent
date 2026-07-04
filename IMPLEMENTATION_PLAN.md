@@ -392,7 +392,7 @@ reconcile can flag any `zone_ledger` row with no matching weekly/validation outp
 - Map timestamp columns to UTC `timestamptz`; keep instrument/timeframe text values unchanged.
 
 **0.2 Postgres bootstrap — DONE 2026-07-04**
-- Add `src/docker-compose.yml` with Postgres only.
+- Add `docker-compose.yml` with Postgres only.
 - Add `src/database/init.sql`.
 - Add `.env.example`; keep real `.env` local only.
 - Add `pg_dump` backup command equivalent to current `db_guard.py` retention policy.
@@ -469,13 +469,12 @@ orders yet.
 - `run_replay(week?, instrument?)`
 - `run_calibration()`
 - `run_backtest(name, args)` allowlisted by script name and bounded runtime.
-- Docker validation: `/health`, `/tools`, `sql_query`, `get_brief`, `compute_indicators`,
+- Docker validation: `/health`, `sql_query`, `get_brief`, `compute_indicators`,
   `get_calibration`, `run_gate`, and `run_replay` pass against local Postgres.
 
 **2.4 Manual parity test — DONE 2026-07-04**
 - Hand-run `/validate` for one pair using MCP data.
 - Run one known backtest (offset session or E0 variants) and compare published result table.
-- Added `src/engine/scripts/ops/mcp_parity_check.py`.
 - EURUSD parity passed:
   - MCP `get_brief` latest OHLC + zone/trade counts match local DB.
   - MCP `compute_indicators` matches local formula output.

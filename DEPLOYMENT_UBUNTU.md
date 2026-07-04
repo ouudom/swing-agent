@@ -49,8 +49,8 @@ Use the branch carrying the standalone `swing-agent` folder as repo root.
 ## 3. Configure Env
 
 ```bash
-cp src/.env.example src/.env
-nano src/.env
+cp .env.example .env
+nano .env
 ```
 
 Set:
@@ -69,7 +69,6 @@ Keep:
 ```bash
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5432
-MCP_PORT=8765
 ```
 
 The pipeline and MCP containers override `POSTGRES_HOST=postgres` internally. Compose binds Postgres
@@ -78,8 +77,8 @@ and MCP to `127.0.0.1` on the host.
 ## 4. Start Postgres
 
 ```bash
-docker compose -f src/docker-compose.yml up -d postgres
-docker compose -f src/docker-compose.yml ps
+docker compose up -d postgres
+docker compose ps
 ```
 
 Wait until Postgres is healthy.
@@ -90,9 +89,9 @@ Run from host after placing the migration SQLite file at `data/database/index.db
 Postgres dump instead.
 
 ```bash
-docker compose -f src/docker-compose.yml run --rm pipeline \
+docker compose run --rm pipeline \
   python src/engine/scripts/ops/backfill_sqlite_to_postgres.py
-docker compose -f src/docker-compose.yml run --rm pipeline \
+docker compose run --rm pipeline \
   python src/engine/scripts/ops/diff_sqlite_postgres.py
 ```
 
@@ -101,27 +100,25 @@ Expected: every table prints `OK`. `lost_and_found` is intentionally excluded.
 For existing volumes after upgrades:
 
 ```bash
-docker compose -f src/docker-compose.yml exec -T pipeline \
+docker compose exec -T pipeline \
   python src/engine/scripts/ops/apply_postgres_migrations.py
 ```
 
 ## 6. Start Pipeline + MCP
 
-Two MCP transports front the **same** tool surface (`src/mcp-server/tools.py`):
+`mcp-native` (port 8766) fronts the tool surface (`src/mcp-server/tools.py`) as native
+Model Context Protocol over Streamable HTTP, for registering directly in Claude Code /
+any MCP client.
 
-- `mcp-server` (port 8765) — legacy REST/JSON, for `curl` routines.
-- `mcp-native` (port 8766) — native Model Context Protocol (Streamable HTTP), for
-  registering directly in Claude Code / any MCP client.
-
-A fourth service, `dashboard` (port 8888), is an optional read-only monitoring frontend
+A third service, `dashboard` (port 8888), is an optional read-only monitoring frontend
 (open zones, system P&L replay, validations, pipeline/routine health) — bound `127.0.0.1`,
 view over an SSH tunnel.
 
 Start all long-running services:
 
 ```bash
-docker compose -f src/docker-compose.yml up -d pipeline mcp-server mcp-native dashboard
-docker compose -f src/docker-compose.yml ps
+docker compose up -d pipeline mcp-native dashboard
+docker compose ps
 ```
 
 Run ledger:
@@ -136,17 +133,6 @@ Dashboard smoke (port 8888) — then tunnel `ssh -L 8888:127.0.0.1:8888 <host>` 
 ```bash
 curl http://127.0.0.1:8888/health
 curl http://127.0.0.1:8888/api/health
-```
-
-REST smoke (port 8765):
-
-```bash
-curl http://127.0.0.1:8765/health
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://127.0.0.1:8765/tools
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"tool":"sql_query","args":{"sql":"select count(*) as n from zone_ledger"}}' \
-  http://127.0.0.1:8765/call
 ```
 
 Native MCP smoke (port 8766) — `/health` is open, `/mcp` requires the Bearer token:
@@ -176,8 +162,8 @@ All 15 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_rep
 `publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint`) then appear
 in Claude Code with schemas auto-derived from the Python signatures.
 
-Do not expose either MCP port publicly without a tunnel/VPN and a strong `MCP_AUTH_TOKEN`.
-Compose binds both to `127.0.0.1` on the host by default.
+Do not expose the MCP port publicly without a tunnel/VPN and a strong `MCP_AUTH_TOKEN`.
+Compose binds it to `127.0.0.1` on the host by default.
 
 Structured write smoke should use a test zone only, then remove it. Production writes happen through
 `publish_zone` and `write_verdict`, followed by markdown commit/push from Claude Code.
@@ -187,16 +173,16 @@ Structured write smoke should use a test zone only, then remove it. Production w
 Use one-shot mode before trusting the long-running scheduler:
 
 ```bash
-docker compose -f src/docker-compose.yml run --rm pipeline \
+docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once brief_refresh --instrument eurusd
 
-docker compose -f src/docker-compose.yml run --rm pipeline \
+docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once trade_outcome
 
-docker compose -f src/docker-compose.yml run --rm pipeline \
+docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once reconcile
 
-docker compose -f src/docker-compose.yml run --rm pipeline \
+docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once send_notifications
 ```
 
@@ -226,14 +212,14 @@ crontab -e
 ```bash
 cd ~/apps/swing-agent
 git pull --ff-only
-docker compose -f src/docker-compose.yml build pipeline mcp-server mcp-native
-docker compose -f src/docker-compose.yml up -d
+docker compose build pipeline mcp-native
+docker compose up -d
 ```
 
 ## 10. Rollback
 
 ```bash
-docker compose -f src/docker-compose.yml stop pipeline mcp-server mcp-native
+docker compose stop pipeline mcp-native
 ```
 
 SQLite path remains default when `SWING_DB_BACKEND` is unset, so manual legacy scripts still work.

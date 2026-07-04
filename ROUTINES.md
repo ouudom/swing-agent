@@ -15,7 +15,7 @@ Postgres. Claude Code owns prose in `wiki/`.
 Run hourly during market hours from a local checkout on the `live` branch:
 
 ```bash
-export MCP_URL=http://127.0.0.1:8765
+export MCP_URL=http://127.0.0.1:8766/mcp
 export MCP_AUTH_TOKEN=<token>
 
 # Per instrument:
@@ -35,7 +35,7 @@ Reuse the same `run_id`, fix git, then run reconcile.
 Monday after weekly data refresh:
 
 ```bash
-export MCP_URL=http://127.0.0.1:8765
+export MCP_URL=http://127.0.0.1:8766/mcp
 export MCP_AUTH_TOKEN=<token>
 
 # For all 11 instruments:
@@ -49,14 +49,14 @@ export MCP_AUTH_TOKEN=<token>
 ## Reconcile
 
 ```bash
-docker compose -f src/docker-compose.yml exec -T pipeline \
+docker compose exec -T pipeline \
   python src/engine/scripts/ops/reconcile_db_git.py
 ```
 
 Strict mode for CI/routine hard-fail:
 
 ```bash
-docker compose -f src/docker-compose.yml exec -T pipeline \
+docker compose exec -T pipeline \
   python src/engine/scripts/ops/reconcile_db_git.py --strict
 ```
 
@@ -65,7 +65,7 @@ docker compose -f src/docker-compose.yml exec -T pipeline \
 MCP write tools queue `notification_event` rows for important events. Sender:
 
 ```bash
-docker compose -f src/docker-compose.yml exec -T pipeline \
+docker compose exec -T pipeline \
   python src/engine/scripts/ops/send_notifications.py
 ```
 

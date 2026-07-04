@@ -2,10 +2,9 @@
 """
 server_mcp.py — native Model Context Protocol transport (Streamable HTTP).
 
-Wraps the exact same `TOOLS` callables as the REST server (`server.py`). FastMCP
-auto-derives each tool's JSON input schema from the function signature + type hints,
-so Claude Code (and any MCP client) sees a fully-typed toolset with no hand-written
-schemas.
+Wraps the `TOOLS` callables from `tools.py`. FastMCP auto-derives each tool's JSON
+input schema from the function signature + type hints, so Claude Code (and any MCP
+client) sees a fully-typed toolset with no hand-written schemas.
 
 Register with Claude Code:
 
@@ -40,7 +39,7 @@ TOKEN = os.getenv("MCP_AUTH_TOKEN", "dev-token")
 
 mcp = FastMCP("swing-agent", host=HOST, port=PORT)
 
-# Register every REST tool under the same name; schema is inferred from type hints.
+# Register every tool under its native name; schema is inferred from type hints.
 for _name, _fn in TOOLS.items():
     mcp.tool(name=_name)(_fn)
 
