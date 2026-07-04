@@ -154,7 +154,7 @@ def main(argv: list[str]) -> int:
         with pg.transaction():
             if not args.no_truncate:
                 joined = ", ".join(quote(t) for t in args.tables)
-                pg.execute(f"TRUNCATE {joined}")
+                pg.execute(f"TRUNCATE {joined} CASCADE")
             for table in args.tables:
                 inserted = backfill_table(sqlite_path, pg, table, args.chunk_size)
                 print(f"{table}: inserted={inserted}")
