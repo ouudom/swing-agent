@@ -69,12 +69,12 @@ majors' macro weighting were redistributed to structure (Z1 2.5→3.0) + oscilla
 | | **Total** | **10.0** | | |
 
 **R reminder:** EURGBP R is computed in USD like the majors, no GBP convert (operator decision;
-see [[eurgbp_profile]]). **Netting:** route every order through `scripts/fx_exposure.py` — EURGBP
+see [[eurgbp_profile]]). **Netting:** route every order through `scripts/advisory/fx_exposure.py` — EURGBP
 IS the cross axis (see [[currency_exposure]]).
 
 **Invalidation:** D1 CLOSE beyond the zone in the fade-against direction = dead (became a
 breakout/trend). V1b = 2 consecutive H4 closes >0.25×H4 ATR14 past zone (ATR-scaled default,
-`scripts/check_v1b.py`; pass `--buffer` for a static override).
+`scripts/gates/check_v1b.py`; pass `--buffer` for a static override).
 
 **Output per zone:** ✅ ORDER LIMIT | ❌ NO TRADE / INVALIDATED.
 

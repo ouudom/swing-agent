@@ -99,7 +99,7 @@ any hard block fails
 | | Block | Fail action |
 |---|---|---|
 | V1 | D1 close beyond zone | INVALIDATED — remove zone from runtime state |
-| V1b | 2 consecutive H4 closes >0.25×H4 ATR14 past zone extreme (ATR-scaled default; `--buffer` overrides static) | INVALIDATED — cancel limit (`scripts/check_v1b.py`) |
+| V1b | 2 consecutive H4 closes >0.25×H4 ATR14 past zone extreme (ATR-scaled default; `--buffer` overrides static) | INVALIDATED — cancel limit (`scripts/gates/check_v1b.py`) |
 | V3 | NFP/FOMC/CPI/US Retail Sales within 2h of London (08:00) or NY (13:00) open | NO TRADE — cancel live limit |
 | VETO | VIX > 35 | all SHORT zones NO TRADE |
 

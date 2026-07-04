@@ -68,7 +68,7 @@ D1 structure + H1 oscillators, not H4 oscillators.
 | | **Total** | **10.0** | | |
 
 **Invalidation:** D1 CLOSE beyond zone against the fade = dead. V1b: 2 consecutive H4 closes
->0.25×H4 ATR14 past zone (ATR-scaled default, `scripts/check_v1b.py`; pass `--buffer` for a static override).
+>0.25×H4 ATR14 past zone (ATR-scaled default, `scripts/gates/check_v1b.py`; pass `--buffer` for a static override).
 
 **Session notes:** London open 07–09 UTC = H1 LONG drift (t=2.70) — best long-fade window.
 US data (12:30–14:00 UTC) dominates the calendar; SNB days are rare but absolute blocks.

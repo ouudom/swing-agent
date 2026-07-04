@@ -107,5 +107,5 @@ risk-off polarity is inverted and sub-significant. VIX-spike is a weak LONG *til
 
 ## Netting (critical — see [[currency_exposure]])
 EURGBP IS the cross risk-axis. A direct EURGBP order can stack on an *implied* cross from a held
-EURUSD/GBPUSD pair. Every EURGBP order MUST route through `scripts/fx_exposure.py` (Architecture B
+EURUSD/GBPUSD pair. Every EURGBP order MUST route through `scripts/advisory/fx_exposure.py` (Architecture B
 ledger) — per-axis $2000 cap, keep-best-drop-weaker. Do not size EURGBP in isolation.

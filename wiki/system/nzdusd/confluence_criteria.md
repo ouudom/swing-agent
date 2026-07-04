@@ -66,7 +66,7 @@ D1 BB squeeze t=2.35) and big-figure is a LONG magnet (H4 t=2.77, short side ant
 | | **Total** | **10.0** | | |
 
 **Invalidation:** D1 CLOSE beyond zone against the fade = dead. V1b: 2 consecutive H4 closes
->0.25×H4 ATR14 past zone (ATR-scaled default, `scripts/check_v1b.py`; pass `--buffer` for a static override).
+>0.25×H4 ATR14 past zone (ATR-scaled default, `scripts/gates/check_v1b.py`; pass `--buffer` for a static override).
 
 **Session notes:** London open 07–09 H1 SHORT drift (t=2.12). NZ data lands 21:45–02:00 UTC in
 thin liquidity — never hold a fresh limit through RBNZ/CPI (hard block).

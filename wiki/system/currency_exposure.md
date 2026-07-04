@@ -59,7 +59,7 @@ though AUD and NZD are distinct currencies — emitted as a note.
 
 ## Workflow — runs inside /validate at order-finalization
 ```bash
-bash scripts/pyrun.sh scripts/fx_exposure.py --live "<other live FX orders>" \
+bash scripts/pyrun.sh scripts/advisory/fx_exposure.py --live "<other live FX orders>" \
      --candidate "<this inst:dir:risk>" --new-ec <EC> --live-ecs "<inst:ec,...>"
 ```
 - `INDEPENDENT` → place normally.

@@ -36,7 +36,7 @@ momentum bias). They generalize via each instrument's profile — never hardcode
 All formulas (SL, offset, TP, R) are unit-agnostic across instruments. EURGBP is nominally GBP-quoted
 but — **operator decision** — is tracked in R-multiples with the same formula as the majors
 (no GBP→USD conversion needed; SL/offset/TP all unit-agnostic in price-distance terms).
-Every EURGBP order routes through the FX netting ledger (`scripts/fx_exposure.py`) — EURGBP IS the
+Every EURGBP order routes through the FX netting ledger (`scripts/advisory/fx_exposure.py`) — EURGBP IS the
 cross risk-axis (see [[currency_exposure]]).
 
 ## Risk Rules — Non-Negotiable
@@ -47,7 +47,7 @@ cross risk-axis (see [[currency_exposure]]).
 ## Portfolio Currency-Leg Netting — FX only, ADVISORY (D022 as amended by D024; see [[currency_exposure]])
 Every FX pair = +base / −quote currency leg. Pairs sharing a leg in the same direction do NOT
 diversify — they concentrate onto one factor (e.g. EURUSD short + GBPUSD short = 2× long USD;
-USDJPY long + EURJPY long = 2× short JPY). The ledger `scripts/fx_exposure.py` decomposes all
+USDJPY long + EURJPY long = 2× short JPY). The ledger `scripts/advisory/fx_exposure.py` decomposes all
 live + candidate FX orders into per-currency legs and flags shared-leg concentration.
 
 **D024 (operator): this system generates signals, it does not manage risk. No hard $ cap.**
@@ -85,7 +85,7 @@ Daily workflow (07:30 UTC, before London open):
   1. /validate [date]
   2. Hard blocks (any fail = stop):
        V1  D1 close beyond zone           → INVALIDATED
-       V1b 2 consecutive H4 closes > [V1b buffer] past zone → INVALIDATED (scripts/check_v1b.py)
+       V1b 2 consecutive H4 closes > [V1b buffer] past zone → INVALIDATED (scripts/gates/check_v1b.py)
            buffer = 0.25 × H4 ATR14 (ATR-scaled default; `--buffer` for a static override) —
            a static pip buffer whipsaws high-ATR weeks (gbpjpy W27 cancelled a running +1R winner)
        V3  event WINDOW (±30min / within 2h of open) → NO TRADE
@@ -164,7 +164,7 @@ the stop is fixed except the one-time BE move at +1.5R.
 - No new entries inside the **event window** itself — release ±30min, OR any hard event within 2h
   of the 08:00 London / 13:00 NY open. This is the V3 "entry-in-window" block and is unchanged.
 - Scheduled central-bank decisions (FOMC/ECB/BoE/BoJ/SNB/RBA/RBNZ/BoC) come from the static
-  calendar `scripts/config/cb_calendar_{year}.json` via `scripts/check_cb_calendar.py` —
+  calendar `scripts/config/cb_calendar_{year}.json` via `scripts/gates/check_cb_calendar.py` —
   MANDATORY at /weekly (10-day window) and /validate (2-day window). Web search supplements
   the calendar, never replaces it. Rebuild the JSON every December.
 
@@ -191,7 +191,7 @@ At **13:00 UTC Friday (NY open)**, cancel **all unfilled limit orders** — neve
 limit into the weekend gap. **Open (filled) positions keep running** to their normal TP/SL/BE; only
 pending/unfilled limits are pulled. Rationale: a Sunday-open gap through a fresh unmonitored fill is
 uncontrolled risk, whereas an already-open position is already bounded by its stop. Enforced live at
-`/validate` (Friday) and in replay (`scripts/trade_outcome.py` cancels any limit not filled by Fri
+`/validate` (Friday) and in replay (`scripts/replay/trade_outcome.py` cancels any limit not filled by Fri
 13:00 UTC; already-filled trades walk normally).
 
 ## Invalidation
@@ -235,7 +235,7 @@ Sunday `/weekly` bias is assumed valid through Friday close. Mid-week re-forecas
 **T4-X** = tier-1 unscheduled event published today by Reuters/Bloomberg/AP, allowed categories
 ONLY: central-bank emergency, declared war / major G20 sanctions, Fed chair removal, sovereign
 default, major political shock. Requires valid `data/news_events/[DATE]_t4x.json` (schema enforced
-by `scripts/check_structured_news_event.py`) + mirror to `runtime state`. No valid JSON → T4-X does not fire.
+by `scripts/gates/check_structured_news_event.py`) + mirror to `runtime state`. No valid JSON → T4-X does not fire.
 
 ### Hard preconditions (re-forecast allowed iff ALL true)
 1. No open positions (re-forecast acts only on PENDING zones + unfilled limits).
