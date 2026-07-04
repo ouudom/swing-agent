@@ -113,10 +113,14 @@ Two MCP transports front the **same** tool surface (`src/mcp-server/tools.py`):
 - `mcp-native` (port 8766) — native Model Context Protocol (Streamable HTTP), for
   registering directly in Claude Code / any MCP client.
 
-Start all three long-running services:
+A fourth service, `dashboard` (port 8888), is an optional read-only monitoring frontend
+(open zones, system P&L replay, validations, pipeline/routine health) — bound `127.0.0.1`,
+view over an SSH tunnel.
+
+Start all long-running services:
 
 ```bash
-docker compose -f src/docker-compose.yml up -d pipeline mcp-server mcp-native
+docker compose -f src/docker-compose.yml up -d pipeline mcp-server mcp-native dashboard
 docker compose -f src/docker-compose.yml ps
 ```
 
@@ -124,6 +128,14 @@ Run ledger:
 
 ```bash
 tail -f src/logs/pipeline_run.jsonl
+```
+
+Dashboard smoke (port 8888) — then tunnel `ssh -L 8888:127.0.0.1:8888 <host>` and open
+`http://localhost:8888`:
+
+```bash
+curl http://127.0.0.1:8888/health
+curl http://127.0.0.1:8888/api/health
 ```
 
 REST smoke (port 8765):

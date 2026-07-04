@@ -110,5 +110,31 @@ services:
     volumes:
       - ..:/app
 
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: swing-agent-dashboard
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: 8888
+      SWING_DB_BACKEND: postgres
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-8888}:8888"
+    # No bind mount: self-contained image (built Vite bundle + API), so `..:/app`
+    # doesn't shadow the baked-in dist. Rebuild the image to ship UI changes.
+
 volumes:
   postgres_data:

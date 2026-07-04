@@ -110,6 +110,25 @@ LAN/tunnel exposure. Read/compute tools:
 Structured write tools:
 `publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint`.
 
+## Monitoring Dashboard
+
+Read-only React/Vite frontend for an at-a-glance system overview — open zones + latest verdict,
+system P&L replay (total R / win-rate / R-by-instrument), recent validations & trades, pipeline-run
+health, and routine/data freshness. Standalone service (`dashboard`), own two-stage image
+(node build → python API); it does **not** import the MCP tool surface — it carries its own
+`pg_connect` and a fixed map of read-only SQL behind `/api/*`, and serves the built bundle
+same-origin. Source: `src/dashboard/` (`api/server.py`, `web/`).
+
+- Port 8888, bound `127.0.0.1` — view over an SSH tunnel (`ssh -L 8888:127.0.0.1:8888 <host>`).
+- No auth (localhost-only, read-only). No bind mount — **rebuild the image to ship UI changes**:
+  `docker compose -f src/docker-compose.yml up -d --build dashboard`.
+- Local web dev: `cd src/dashboard/web && npm install && npm run dev` (Vite proxies `/api` → :8888).
+
+```bash
+curl http://127.0.0.1:8888/health
+curl http://127.0.0.1:8888/api/health   # routines + jobs + data freshness
+```
+
 Parity check:
 
 ```bash
