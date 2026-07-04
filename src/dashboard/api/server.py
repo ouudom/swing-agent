@@ -84,7 +84,7 @@ def api_health():
             "FROM pipeline_run ORDER BY job_name, started_utc DESC"
         ),
         "data_freshness": query(
-            "SELECT 'ohlc' AS source, MAX(datetime_utc) AS latest FROM ohlc "
+            "SELECT 'ohlc' AS source, MAX(datetime) AS latest FROM ohlc "
             "UNION ALL SELECT 'news', MAX(datetime_utc) FROM news "
             "UNION ALL SELECT 'econ_calendar', MAX(date)::timestamptz FROM econ_calendar"
         ),
