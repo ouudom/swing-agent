@@ -2,14 +2,14 @@
 set -eu
 
 # Nightly Postgres backup. Keep last 7 compressed dumps.
-# Usage from auto-swing/src:
+# Usage from swing-agent/src:
 #   ./scripts/backup_postgres.sh
 
 BACKUP_DIR="${BACKUP_DIR:-./backups/postgres}"
 POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-POSTGRES_DB="${POSTGRES_DB:-auto_swing}"
-POSTGRES_USER="${POSTGRES_USER:-auto_swing}"
+POSTGRES_DB="${POSTGRES_DB:-swing_agent}"
+POSTGRES_USER="${POSTGRES_USER:-swing_agent}"
 
 mkdir -p "$BACKUP_DIR"
 

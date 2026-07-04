@@ -1,6 +1,6 @@
-# auto-swing src
+# swing-agent src
 
-Deployed app folder. Run commands from the `auto-swing/` repo root. Postgres, deterministic
+Deployed app folder. Run commands from the `swing-agent/` repo root. Postgres, deterministic
 pipeline, and read/compute/write MCP bridge.
 
 ## Local Postgres
@@ -12,9 +12,9 @@ docker compose -f src/docker-compose.yml up -d postgres
 Optional production/local overrides live in `src/.env` (gitignored). Without `.env`, compose uses dev
 defaults:
 
-- DB: `auto_swing`
-- User: `auto_swing`
-- Password: `auto_swing_dev_password`
+- DB: `swing_agent`
+- User: `swing_agent`
+- Password: `swing_agent_dev_password`
 - Port: `127.0.0.1:5432`
 
 ## Backfill From SQLite
@@ -98,7 +98,7 @@ curl -H "Authorization: Bearer dev-token" \
 Native MCP endpoint (8766) — register with Claude Code:
 
 ```bash
-claude mcp add --transport http auto-swing http://127.0.0.1:8766/mcp \
+claude mcp add --transport http swing-agent http://127.0.0.1:8766/mcp \
   --header "Authorization: Bearer dev-token"
 ```
 

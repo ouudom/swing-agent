@@ -1,17 +1,17 @@
-name: auto-swing
+name: swing-agent
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: auto-swing-postgres
+    container_name: swing-agent-postgres
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-auto_swing}
-      POSTGRES_USER: ${POSTGRES_USER:-auto_swing}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auto_swing_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
@@ -28,20 +28,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: auto-swing-pipeline
+    container_name: swing-agent-pipeline
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      AUTO_SWING_REPO_ROOT: /app
+      SWING_AGENT_REPO_ROOT: /app
       PIPELINE_RUN_LOG: /app/src/logs/pipeline_run.jsonl
       SWING_DB_BACKEND: postgres
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-auto_swing}
-      POSTGRES_USER: ${POSTGRES_USER:-auto_swing}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auto_swing_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,22 +54,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: auto-swing-mcp-server
+    container_name: swing-agent-mcp-server
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      AUTO_SWING_REPO_ROOT: /app
+      SWING_AGENT_REPO_ROOT: /app
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8765
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-dev-token}
       SWING_DB_BACKEND: postgres
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-auto_swing}
-      POSTGRES_USER: ${POSTGRES_USER:-auto_swing}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auto_swing_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,22 +84,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: auto-swing-mcp-native
+    container_name: swing-agent-mcp-native
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      AUTO_SWING_REPO_ROOT: /app
+      SWING_AGENT_REPO_ROOT: /app
       MCP_HOST: 0.0.0.0
       MCP_NATIVE_PORT: 8766
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-dev-token}
       SWING_DB_BACKEND: postgres
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-auto_swing}
-      POSTGRES_USER: ${POSTGRES_USER:-auto_swing}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auto_swing_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
     depends_on:
       postgres:
         condition: service_healthy

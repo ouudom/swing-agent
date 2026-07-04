@@ -31,7 +31,7 @@ class CommandResult:
 
 
 def repo_root() -> Path:
-    override = os.getenv("AUTO_SWING_REPO_ROOT")
+    override = os.getenv("SWING_AGENT_REPO_ROOT")
     if override:
         return Path(override).expanduser().resolve()
     return Path(__file__).resolve().parents[2]

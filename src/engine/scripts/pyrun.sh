@@ -10,8 +10,8 @@
 #
 # Usage:  bash src/engine/scripts/pyrun.sh src/engine/scripts/weekly_pull.py --instrument xauusd
 #
-# Layout note: this launcher lives at auto-swing/src/engine/scripts/pyrun.sh, so ROOT is
-# resolved three levels up (scripts -> engine -> src -> auto-swing). requirements.txt lives
+# Layout note: this launcher lives at swing-agent/src/engine/scripts/pyrun.sh, so ROOT is
+# resolved three levels up (scripts -> engine -> src -> swing-agent). requirements.txt lives
 # under src/. In Docker the pipeline bypasses this launcher entirely (commands.pyrun detects
 # /.dockerenv and calls the interpreter directly) — this path is the LOCAL fallback only.
 set -euo pipefail

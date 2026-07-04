@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-server.py — legacy REST/JSON transport over the auto-swing tool surface.
+server.py — legacy REST/JSON transport over the swing-agent tool surface.
 
 Kept for curl-based routines and back-compat. Tool logic lives in `tools.py`; the
 native MCP transport is `server_mcp.py`. Both import the same `TOOLS` dict, so the
@@ -31,7 +31,7 @@ TOKEN = os.getenv("MCP_AUTH_TOKEN", "dev-token")
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "auto-swing-mcp/0.1"
+    server_version = "swing-agent-mcp/0.1"
 
     def log_message(self, fmt, *args):
         print(f"{utc_now()} {self.client_address[0]} {fmt % args}", flush=True)
@@ -92,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    print(f"auto-swing REST server starting on {HOST}:{PORT}", flush=True)
+    print(f"swing-agent REST server starting on {HOST}:{PORT}", flush=True)
     if TOKEN == "dev-token":
         print("WARNING: MCP_AUTH_TOKEN not set; using dev-token", flush=True)
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

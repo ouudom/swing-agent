@@ -9,7 +9,7 @@ schemas.
 
 Register with Claude Code:
 
-    claude mcp add --transport http auto-swing \
+    claude mcp add --transport http swing-agent \
       http://<host>:${MCP_NATIVE_PORT:-8766}/mcp \
       --header "Authorization: Bearer $MCP_AUTH_TOKEN"
 
@@ -38,7 +38,7 @@ HOST = os.getenv("MCP_HOST", "0.0.0.0")
 PORT = int(os.getenv("MCP_NATIVE_PORT", "8766"))
 TOKEN = os.getenv("MCP_AUTH_TOKEN", "dev-token")
 
-mcp = FastMCP("auto-swing", host=HOST, port=PORT)
+mcp = FastMCP("swing-agent", host=HOST, port=PORT)
 
 # Register every REST tool under the same name; schema is inferred from type hints.
 for _name, _fn in TOOLS.items():
@@ -55,7 +55,7 @@ class BearerAuth(BaseHTTPMiddleware):
 
 
 def main() -> int:
-    print(f"auto-swing NATIVE MCP server starting on {HOST}:{PORT} (path /mcp)", flush=True)
+    print(f"swing-agent NATIVE MCP server starting on {HOST}:{PORT} (path /mcp)", flush=True)
     if TOKEN == "dev-token":
         print("WARNING: MCP_AUTH_TOKEN not set; using dev-token", flush=True)
 

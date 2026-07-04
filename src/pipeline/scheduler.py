@@ -68,7 +68,7 @@ def build_scheduler():
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="auto-swing deterministic pipeline scheduler")
+    parser = argparse.ArgumentParser(description="swing-agent deterministic pipeline scheduler")
     parser.add_argument(
         "--once",
         choices=[
@@ -94,7 +94,7 @@ def main(argv: list[str]) -> int:
         return 0 if record.status == "ok" else 1
 
     scheduler = build_scheduler()
-    print("auto-swing scheduler starting (UTC)")
+    print("swing-agent scheduler starting (UTC)")
     scheduler.start()
     return 0
 

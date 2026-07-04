@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compare SQLite canonical store against auto-swing Postgres.
+Compare SQLite canonical store against swing-agent Postgres.
 
 Checks row counts, min/max key ranges, and deterministic sample hashes.
 """
@@ -42,7 +42,7 @@ def repo_root() -> Path:
 def load_env() -> None:
     if load_dotenv is None:
         return
-    src_env = repo_root() / "auto-swing" / "src" / ".env"
+    src_env = repo_root() / "swing-agent" / "src" / ".env"
     if src_env.exists():
         load_dotenv(src_env)
 
@@ -61,9 +61,9 @@ def pg_connect():
     return psycopg.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5432"),
-        dbname=os.getenv("POSTGRES_DB", "auto_swing"),
-        user=os.getenv("POSTGRES_USER", "auto_swing"),
-        password=os.getenv("POSTGRES_PASSWORD", "auto_swing_dev_password"),
+        dbname=os.getenv("POSTGRES_DB", "swing_agent"),
+        user=os.getenv("POSTGRES_USER", "swing_agent"),
+        password=os.getenv("POSTGRES_PASSWORD", "swing_agent_dev_password"),
     )
 
 

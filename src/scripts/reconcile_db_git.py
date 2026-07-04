@@ -27,9 +27,9 @@ def connect():
     return psycopg.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5432"),
-        dbname=os.getenv("POSTGRES_DB", "auto_swing"),
-        user=os.getenv("POSTGRES_USER", "auto_swing"),
-        password=os.getenv("POSTGRES_PASSWORD", "auto_swing_dev_password"),
+        dbname=os.getenv("POSTGRES_DB", "swing_agent"),
+        user=os.getenv("POSTGRES_USER", "swing_agent"),
+        password=os.getenv("POSTGRES_PASSWORD", "swing_agent_dev_password"),
     )
 
 
@@ -50,8 +50,8 @@ def rel(path: Path, root: Path) -> str:
 def normalize_source(source: str | None) -> str | None:
     if not source:
         return None
-    if source.startswith("auto-swing/"):
-        return source.removeprefix("auto-swing/")
+    if source.startswith("swing-agent/"):
+        return source.removeprefix("swing-agent/")
     return source
 
 
@@ -65,7 +65,7 @@ def scan_files(root: Path):
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Reconcile auto-swing DB structured rows with git prose files.")
+    parser = argparse.ArgumentParser(description="Reconcile swing-agent DB structured rows with git prose files.")
     parser.add_argument("--wiki-root", default=str(repo_root() / "wiki"))
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args(argv)

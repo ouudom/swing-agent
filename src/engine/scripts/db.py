@@ -51,9 +51,9 @@ def _pg_con():
     return psycopg.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=os.getenv("POSTGRES_PORT", "5432"),
-        dbname=os.getenv("POSTGRES_DB", "auto_swing"),
-        user=os.getenv("POSTGRES_USER", "auto_swing"),
-        password=os.getenv("POSTGRES_PASSWORD", "auto_swing_dev_password"),
+        dbname=os.getenv("POSTGRES_DB", "swing_agent"),
+        user=os.getenv("POSTGRES_USER", "swing_agent"),
+        password=os.getenv("POSTGRES_PASSWORD", "swing_agent_dev_password"),
     )
 
 
