@@ -147,3 +147,40 @@ def time_at_price(df, bins=50, window=480):
         elif hi_i < bins - 1:             hi_i += 1; acc += add_hi
         else:                             lo_i -= 1; acc += add_lo
     return {"htn": mid(htn_i), "va_high": edges[hi_i + 1], "va_low": edges[lo_i]}
+
+
+# ── price levels (moved here from the pull pipeline so /weekly + fetch share one impl) ──
+# All three want a datetime-indexed OHLC frame (closed bars) and the pair's display precision.
+
+def calc_pivots(d1_df, dp):
+    """Classic weekly floor pivots off the PRIOR completed week's H/L/C."""
+    gw = d1_df.resample("W").agg({"open": "first", "high": "max", "low": "min",
+                                  "close": "last"}).dropna()
+    b = gw.iloc[-2]
+    pp = (b["high"] + b["low"] + b["close"]) / 3
+    return {"PP": round(pp, dp),
+            "R1": round(2 * pp - b["low"], dp),  "R2": round(pp + b["high"] - b["low"], dp),
+            "R3": round(b["high"] + 2 * (pp - b["low"]), dp),
+            "S1": round(2 * pp - b["high"], dp), "S2": round(pp - b["high"] + b["low"], dp),
+            "S3": round(b["low"] - 2 * (b["high"] - pp), dp)}
+
+
+def swing_points(df, dp, n=5):
+    """Last 5 fractal swing highs/lows (n-bar half-width). Returns (highs, lows) as
+    lists of (date_str, price)."""
+    highs, lows = [], []
+    for i in range(n, len(df) - n):
+        if df["high"].iloc[i] == df["high"].iloc[i - n:i + n + 1].max():
+            highs.append((str(df.index[i].date()), round(float(df["high"].iloc[i]), dp)))
+        if df["low"].iloc[i] == df["low"].iloc[i - n:i + n + 1].min():
+            lows.append((str(df.index[i].date()), round(float(df["low"].iloc[i]), dp)))
+    return highs[-5:], lows[-5:]
+
+
+def fib_levels(lo, hi, dp):
+    """Retracement + extension levels between a swing low/high."""
+    d = hi - lo
+    return {"swing_low": round(lo, dp), "swing_high": round(hi, dp),
+            "78.6%": round(hi - 0.786 * d, dp), "61.8%": round(hi - 0.618 * d, dp),
+            "50.0%": round(hi - 0.500 * d, dp), "38.2%": round(hi - 0.382 * d, dp),
+            "ext_127.2%": round(lo + 1.272 * d, dp), "ext_161.8%": round(lo + 1.618 * d, dp)}

@@ -1,5 +1,5 @@
 """
-Backfill full FRED series history into the `macro_series` table (data/index.db).
+Backfill full FRED series history into the `macro_series` table (data/database/index.db).
 
 Usage:
   bash scripts/pyrun.sh scripts/backfill/backfill_fred.py                       # default series

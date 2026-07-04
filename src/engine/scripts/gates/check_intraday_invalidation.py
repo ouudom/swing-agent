@@ -10,8 +10,8 @@ of a static per-pair pip constant — a fixed buffer whipsaws high-ATR pairs
 (gbpjpy's static 0.05 cancelled a running +1R W27 winner on a 20-pip H4 breach,
 ~2-3% of its H4 ATR). Pass --buffer to override with a static value (old behavior).
 
-Zone is passed on the CLI by /validate (read from _HOT.md active zones).
-Run at each H4 boundary (00/04/08/12/16/20 UTC) — manually or via cron.
+Zone is passed on the CLI by /validate (the active zone comes from the `zone_ledger`
+DB table, read via MCP get_brief). Run at each H4 boundary (00/04/08/12/16/20 UTC).
 
 Usage:
     bash scripts/pyrun.sh scripts/gates/check_intraday_invalidation.py --direction SHORT --zone-top 3400 --zone-bottom 3380
@@ -110,7 +110,7 @@ def main():
           f"threshold {extreme:.{dp}f} | {verdict}")
 
     if breach:
-        print("\n→ Cancel live limit for this zone. Remove zone from _HOT.md.")
+        print("\n→ Cancel live limit for this zone (write_verdict CANCEL_LIMIT via MCP).")
         sys.exit(2)
 
 

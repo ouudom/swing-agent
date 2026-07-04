@@ -1,31 +1,26 @@
 """
-Multi-instrument data pipeline — orchestrator (fetch + compute + snapshot write).
+Multi-instrument data pipeline — fetch every source and sync it to the canonical DB.
 
 Usage:
-    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py                        # xauusd, honors cache
+    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py                        # xauusd
     bash scripts/pyrun.sh scripts/pipeline/fetch_data.py --force                # xauusd, re-fetch full
-    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py --instrument xauusd    # explicit instrument
+    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py --instrument all       # every registered pair
 
-Split entry points (preferred for granular control):
-    scripts/fetch.py    — network IO only (TD 15M + FRED)            → CSVs
-    scripts/compute.py  — indicators + snapshot, no TD/FRED network  → pull file
-    scripts/pipeline/fetch_data.py — this file: cache gate → fetch → compute (back-compat)
+Each run (scheduler calls it every 15/30min per instrument):
+    TD 15M fetch (1 API call) → resample → 1h/4h/1day → upsert `ohlc`
+    FRED / DXY / commodities  → `macro_series` / `market_series`
+    COT (CFTC) → `cot`   ·   ETF flows → `gld_holdings`   ·   news → `news`   ·   econ → `econ_calendar`
 
-Pipeline:
-    TD 15M fetch (1 API call) → append 15min.csv → resample → 1h/4h/1day.csv
-    FRED fetch                → append data/fred/*.csv
-    Compute indicators locally (ATR, ADX, EMA, RSI, MACD, pivots, fibs, swings)
-    Fetch VP (yfinance), COT (CFTC, if enabled), ETF flows (if enabled) — no API key required
-    Write data/weekly_pull/{instrument}/weekly_pull_{YEAR}_W{WW}.txt
+All output is DB-canonical; the AI leg reads it back through the MCP tools
+(get_zone_context / sql_query / get_news / get_econ). No snapshot file is written —
+the old weekly_pull_*.txt dump was retired once get_zone_context recomputed its
+content live from the DB.
 
-Cache policy: refetch unless (a) snapshot <15min old OR (b) market closed
-(CME Globex Fri 22:00 → Sun 22:00 UTC) AND snapshot exists. --force bypasses.
-
-Requirements: pip install requests pandas numpy yfinance python-dotenv
+Requirements: pip install requests pandas yfinance python-dotenv
 """
 
 import os, sys, argparse, time, importlib
-import requests, pandas as pd, numpy as np
+import requests, pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,7 +47,7 @@ _instrument_cfg = None  # set by load_instrument()
 
 def load_instrument(name: str):
     """Load instrument config and rebind module globals. Must be called before fetch/compute."""
-    global _instrument_cfg, SYMBOL, SYM_CLEAN, TD_DIR, PULL_DIR, FRED_SERIES, GLD_HOLD_CSV, TICK_MULTIPLIER, PRICE_DP
+    global _instrument_cfg, SYMBOL, SYM_CLEAN, TD_DIR, FRED_SERIES, GLD_HOLD_CSV, TICK_MULTIPLIER, PRICE_DP
 
     if name not in REGISTERED_INSTRUMENTS:
         raise ValueError(f"Unknown instrument '{name}'. Registered: {list(REGISTERED_INSTRUMENTS)}")
@@ -68,40 +63,24 @@ def load_instrument(name: str):
     SYMBOL      = cfg.SYMBOL
     SYM_CLEAN   = cfg.SYM_CLEAN
     TD_DIR      = Path(cfg.TD_DIR)
-    PULL_DIR    = Path(cfg.PULL_DIR)
     FRED_SERIES = cfg.FRED_SERIES
     # TICK_MULTIPLIER: legacy price-scale constant per instrument, retained only as a
     # heuristic input to PRICE_DP (display precision) below — no longer used for lot sizing.
     TICK_MULTIPLIER = getattr(cfg, "TICK_MULTIPLIER", 100)
-    # Price display/rounding precision: $-scale instruments (gold, TICK<=100) → 2dp;
-    # pip-scale FX (TICK>=10000, price ~1.16, ATR ~0.0018) → 5dp or values round to 0.
-    # JPY pairs break the TICK heuristic (TICK 650, price ~155, pip 0.01) → config sets PRICE_DP=3.
-    PRICE_DP = getattr(cfg, "PRICE_DP", 2 if TICK_MULTIPLIER <= 100 else 5)
+    # Price display/rounding precision (shared helper — same rule zone_context uses):
+    # $-scale gold (TICK<=100) → 2dp; pip-scale FX → 5dp; JPY pairs set PRICE_DP=3 in config.
+    import config as _config_pkg
+    PRICE_DP = _config_pkg.price_dp(cfg)
     if cfg.ETF_ENABLED and cfg.ETF_HOLDINGS_CSV:
         GLD_HOLD_CSV = Path(cfg.ETF_HOLDINGS_CSV)
 
     print(f"[instrument] {cfg.DISPLAY_NAME} loaded")
 
-# Cache policy: skip refetch only if file <15min old OR market closed (weekend) with existing data
-CACHE_FRESH_SECONDS = 15 * 60   # 15 minutes
-
-def is_market_closed_utc(now=None):
-    """CME Globex: closes Fri 22:00 UTC, reopens Sun 22:00 UTC."""
-    now = now or datetime.now(timezone.utc)
-    wd = now.weekday()  # Mon=0 ... Sun=6
-    if wd == 5:                       # Saturday: closed all day
-        return True
-    if wd == 4 and now.hour >= 22:    # Fri >= 22:00 UTC
-        return True
-    if wd == 6 and now.hour < 22:     # Sun < 22:00 UTC
-        return True
-    return False
 
 _SCRIPTS_ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(_SCRIPTS_ROOT, "lib"))
 sys.path.insert(0, _SCRIPTS_ROOT)  # for `db` import below (canonical store — not a fallback)
-from ohlc_store import upsert, last_dt as manifest_last_dt, filter_trading_session
-from structure import structure_events, time_at_price
+from ohlc_store import upsert, last_dt as manifest_last_dt
 
 try:                       # DB-live mirror sync (canonical store migration); CSV stays working set
     import db
@@ -110,7 +89,7 @@ except Exception:
 
 
 def _db_sync(label, fn):
-    """Best-effort sync of a freshly-written slice into data/index.db. Never breaks the
+    """Best-effort sync of a freshly-written slice into data/database/index.db. Never breaks the
     pull on a DB error — the CSV write already succeeded and is the fallback (STORAGE.md)."""
     if db is None:
         return
@@ -125,20 +104,11 @@ load_dotenv()
 TWELVE_KEY = os.getenv("TWELVE_DATA_KEY")
 FRED_KEY   = os.getenv("FRED_KEY")
 
-# All time math in UTC. YEAR must be the ISO year (not calendar year) so the
-# weekly_pull filename stays consistent with WEEK_NUM across the Dec/Jan boundary
-# (e.g. Jan 1 can belong to ISO week 53 of the PRIOR year).
-TODAY    = datetime.now(timezone.utc)
-YEAR, WEEK_NUM, _ = TODAY.isocalendar()
-ALLOW_IMMUTABLE_REWRITE = False  # set by --rewrite-immutable; overrides the weekly-pull freeze guard
-
-# Defaults — overridden by load_instrument(). These match xauusd/config.py
-# so legacy callers (compute.py, fetch.py) work without explicit load_instrument().
+# Defaults — overridden by load_instrument(); match xauusd so a no-arg run works.
 SYMBOL    = "XAU/USD"
 SYM_CLEAN = "xauusd"
 TD_DIR    = Path("data/twelvedata/xauusd")
 FRED_DIR  = Path("data/fred")
-PULL_DIR  = Path("data/weekly_pull/xauusd")
 TICK_MULTIPLIER = 100   # price-scale constant (gold), used only to derive PRICE_DP display precision. Overridden by load_instrument.
 PRICE_DP = 2            # price rounding precision (gold $-scale). FX→5. Overridden by load_instrument.
 
@@ -284,15 +254,6 @@ def load_ohlc(path):
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.dropna(subset=["open", "high", "low", "close"])
 
-def load_fred_local(sid):
-    df = db.read_slice("macro_series", {"series_id": sid}, ["date", "value"]) if db else None
-    if df is None or df.empty:
-        df = pd.read_csv(FRED_DIR / f"{sid}.csv")[["date", "value"]]
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date").sort_index()
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    return df.dropna()
-
 # ── STEP 4: INDICATORS ────────────────────────────────────────────────────────
 
 def _drop_open_bar(df, freq_hours: float) -> pd.DataFrame:
@@ -308,318 +269,12 @@ def _drop_open_bar(df, freq_hours: float) -> pd.DataFrame:
     return df
 
 
-def calc_atr(df, p=14):
-    h, l, c = df["high"], df["low"], df["close"]
-    tr = pd.concat([(h-l), (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
-    return round(float(tr.rolling(p).mean().iloc[-1]), PRICE_DP)
-
-def calc_atr_series(df, p=14):
-    h, l, c = df["high"], df["low"], df["close"]
-    tr = pd.concat([(h-l), (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
-    return tr.rolling(p).mean()
-
-def calc_adx(df, p=14):
-    h, l, c = df["high"], df["low"], df["close"]
-    up, down = h.diff(), -l.diff()
-    plus  = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=df.index)
-    minus = pd.Series(np.where((down > up) & (down > 0), down, 0.0), index=df.index)
-    tr_s  = pd.concat([(h-l), (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
-    tr14  = tr_s.ewm(alpha=1/p, adjust=False).mean()
-    dip   = 100 * plus.ewm(alpha=1/p, adjust=False).mean() / tr14
-    dim   = 100 * minus.ewm(alpha=1/p, adjust=False).mean() / tr14
-    adx   = (100 * (dip-dim).abs() / (dip+dim)).ewm(alpha=1/p, adjust=False).mean()
-    return round(float(adx.iloc[-1]), 1)
-
-def calc_ema(series, span):
-    return round(float(series.ewm(span=span, adjust=False).mean().iloc[-1]), PRICE_DP)
-
-def calc_bollinger(df, p=20, k=2):
-    """20,2 Bollinger bands on D1 close. Context indicator (not scored in v2).
-    Returns mid/upper/lower + %B + position vs bands (last close)."""
-    c = df["close"]
-    mid = c.rolling(p).mean()
-    sd  = c.rolling(p).std(ddof=0)
-    upper = mid + k * sd
-    lower = mid - k * sd
-    last = float(c.iloc[-1])
-    u, m, lo = float(upper.iloc[-1]), float(mid.iloc[-1]), float(lower.iloc[-1])
-    pctb = (last - lo) / (u - lo) if u != lo else 0.5
-    pos = "ABOVE upper (over-extended ↑ → fade short)" if last > u else \
-          "BELOW lower (over-extended ↓ → fade long)" if last < lo else "inside bands"
-    return {"upper": round(u, PRICE_DP), "mid": round(m, PRICE_DP),
-            "lower": round(lo, PRICE_DP), "pctb": round(pctb, 2), "pos": pos}
-
-def calc_rsi_series(df, p=14, n=10):
-    delta = df["close"].diff()
-    avg_g = delta.clip(lower=0).ewm(alpha=1/p, adjust=False).mean()
-    avg_l = (-delta).clip(lower=0).ewm(alpha=1/p, adjust=False).mean()
-    rsi   = (100 - 100/(1 + avg_g/avg_l)).round(1)
-    tail  = rsi.iloc[-n:]
-    return list(zip([str(i.date()) for i in tail.index], tail.values))
-
-def calc_macd(df, fast=12, slow=26, sig=9, n=5):
-    c    = df["close"]
-    line = c.ewm(span=fast, adjust=False).mean() - c.ewm(span=slow, adjust=False).mean()
-    sl   = line.ewm(span=sig, adjust=False).mean()
-    hist = line - sl
-    _md = max(2, PRICE_DP)  # MACD on FX needs more dp or rounds to 0.0
-    return [(str(i.date()), round(float(line[i]),_md), round(float(sl[i]),_md), round(float(hist[i]),_md))
-            for i in line.iloc[-n:].index]
-
 # ── Oscillators / channels referenced by confluence_criteria (D025 — now COMPUTED,
 #    previously eyeballed). All on CLOSED bars; computed for both D1 and H4. ──────
 
-def calc_stochastic(df, k=14, d=3, smooth=3):
-    h, l, c = df["high"], df["low"], df["close"]
-    ll, hh = l.rolling(k).min(), h.rolling(k).max()
-    fast_k = 100 * (c - ll) / (hh - ll).replace(0, np.nan)
-    sk = fast_k.rolling(smooth).mean()
-    sd = sk.rolling(d).mean()
-    kv, dv = float(sk.iloc[-1]), float(sd.iloc[-1])
-    state = "OVERSOLD" if kv < 20 else "OVERBOUGHT" if kv > 80 else "mid"
-    return {"k": round(kv, 1), "d": round(dv, 1), "state": state}
-
-def calc_williams_r(df, p=14):
-    h, l, c = df["high"], df["low"], df["close"]
-    hh, ll = h.rolling(p).max(), l.rolling(p).min()
-    wr = -100 * (hh - c) / (hh - ll).replace(0, np.nan)
-    v = float(wr.iloc[-1])
-    state = "OVERSOLD" if v < -80 else "OVERBOUGHT" if v > -20 else "mid"
-    return {"wr": round(v, 1), "state": state}
-
-def calc_cci(df, p=20):
-    tp = (df["high"] + df["low"] + df["close"]) / 3
-    sma = tp.rolling(p).mean()
-    mad = (tp - sma).abs().rolling(p).mean()
-    cci = (tp - sma) / (0.015 * mad).replace(0, np.nan)
-    v = float(cci.iloc[-1])
-    state = "OVERBOUGHT (>+100)" if v > 100 else "OVERSOLD (<-100)" if v < -100 else "mid"
-    return {"cci": round(v, 1), "state": state}
-
-def calc_keltner(df, ema=20, atr_mult=2.0, atr_p=10):
-    mid = df["close"].ewm(span=ema, adjust=False).mean()
-    atr = calc_atr_series(df, atr_p)
-    up, lo = mid + atr_mult * atr, mid - atr_mult * atr
-    c = float(df["close"].iloc[-1]); u, m, d = float(up.iloc[-1]), float(mid.iloc[-1]), float(lo.iloc[-1])
-    pos = "ABOVE upper (Keltner-high TAGGED → fade short)" if c >= u else \
-          "BELOW lower (Keltner-low TAGGED → fade long)" if c <= d else "inside"
-    return {"upper": round(u, PRICE_DP), "mid": round(m, PRICE_DP), "lower": round(d, PRICE_DP), "pos": pos}
-
-def calc_donchian(df, p=20):
-    up, lo = df["high"].rolling(p).max(), df["low"].rolling(p).min()
-    c = float(df["close"].iloc[-1]); u, d = float(up.iloc[-1]), float(lo.iloc[-1])
-    pos = "at/above upper (breakout)" if c >= u else "at/below lower (breakdown)" if c <= d else "mid-channel"
-    return {"upper": round(u, PRICE_DP), "lower": round(d, PRICE_DP), "pos": pos}
-
-def calc_ttm_squeeze(df, bb_p=20, bb_k=2.0, kc_p=20, kc_mult=1.5, atr_p=20):
-    c = df["close"]
-    sd = c.rolling(bb_p).std(ddof=0)
-    mid = c.rolling(bb_p).mean()
-    bb_u, bb_l = mid + bb_k * sd, mid - bb_k * sd
-    atr = calc_atr_series(df, atr_p)
-    kc_u, kc_l = mid + kc_mult * atr, mid - kc_mult * atr
-    on = (bb_u < kc_u) & (bb_l > kc_l)   # BB inside KC = squeeze ON
-    bars = 0
-    for v in reversed(on.fillna(False).tolist()):
-        if v: bars += 1
-        else: break
-    return {"on": bool(on.iloc[-1]), "bars": bars}
-
-def calc_psar(df, step=0.02, mx=0.2):
-    h, l = df["high"].to_numpy(), df["low"].to_numpy()
-    n = len(df)
-    if n < 3:
-        return {"psar": None, "dir": "n/a", "flip": False}
-    psar = np.zeros(n); bull = True; af = step
-    ep = h[0]; psar[0] = l[0]
-    for i in range(1, n):
-        psar[i] = psar[i-1] + af * (ep - psar[i-1])
-        if bull:
-            if l[i] < psar[i]:
-                bull = False; psar[i] = ep; ep = l[i]; af = step
-            else:
-                if h[i] > ep: ep = h[i]; af = min(af + step, mx)
-        else:
-            if h[i] > psar[i]:
-                bull = True; psar[i] = ep; ep = h[i]; af = step
-            else:
-                if l[i] < ep: ep = l[i]; af = min(af + step, mx)
-    c = float(df["close"].iloc[-1])
-    flip = (n >= 2) and ((c > psar[-1]) != (float(df["close"].iloc[-2]) > psar[-2]))
-    return {"psar": round(float(psar[-1]), PRICE_DP), "dir": "long" if c > psar[-1] else "short", "flip": bool(flip)}
-
-def calc_supertrend(df, p=10, mult=3.0):
-    h, l, c = df["high"], df["low"], df["close"]
-    hl2 = (h + l) / 2
-    atr = calc_atr_series(df, p)
-    upper = hl2 + mult * atr; lower = hl2 - mult * atr
-    n = len(df); cl = c.to_numpy()
-    fu = upper.to_numpy().copy(); fl = lower.to_numpy().copy()
-    dir_up = np.ones(n, dtype=bool)
-    for i in range(1, n):
-        fu[i] = min(fu[i], fu[i-1]) if cl[i-1] <= fu[i-1] else fu[i]
-        fl[i] = max(fl[i], fl[i-1]) if cl[i-1] >= fl[i-1] else fl[i]
-        if cl[i] > fu[i-1]: dir_up[i] = True
-        elif cl[i] < fl[i-1]: dir_up[i] = False
-        else: dir_up[i] = dir_up[i-1]
-    line = fl[-1] if dir_up[-1] else fu[-1]
-    flip = (n >= 2) and (dir_up[-1] != dir_up[-2])
-    return {"dir": "up" if dir_up[-1] else "down", "value": round(float(line), PRICE_DP), "flip": bool(flip)}
-
-def oscillator_block(df, label):
-    """Compact oscillator/channel read for one timeframe → (text, extremes_list)."""
-    st = calc_stochastic(df); wr = calc_williams_r(df); cci = calc_cci(df)
-    kel = calc_keltner(df); don = calc_donchian(df); sq = calc_ttm_squeeze(df)
-    ps = calc_psar(df); su = calc_supertrend(df)
-    ex = []
-    if st["state"] != "mid": ex.append(f"{label} Stoch {st['k']} {st['state']}")
-    if wr["state"] != "mid": ex.append(f"{label} W%R {wr['wr']} {wr['state']}")
-    if cci["state"] != "mid": ex.append(f"{label} CCI {cci['cci']} {cci['state']}")
-    if "TAGGED" in kel["pos"]: ex.append(f"{label} {kel['pos'].split(' (')[0]}")
-    if sq["on"]: ex.append(f"{label} TTM squeeze ON {sq['bars']}b")
-    txt = (f"  {label}:  Stoch %K {st['k']}/%D {st['d']} ({st['state']}) | W%R {wr['wr']} ({wr['state']}) | "
-           f"CCI {cci['cci']} ({cci['state']})\n"
-           f"        Keltner u{kel['upper']}/m{kel['mid']}/l{kel['lower']} → {kel['pos']}\n"
-           f"        Donchian u{don['upper']}/l{don['lower']} → {don['pos']} | "
-           f"TTM squeeze {'ON ('+str(sq['bars'])+' bars)' if sq['on'] else 'OFF'}\n"
-           f"        PSAR {ps['psar']} ({ps['dir']}{' FLIP' if ps['flip'] else ''}) | "
-           f"Supertrend {su['value']} ({su['dir']}{' FLIP' if su['flip'] else ''})")
-    return txt, ex
-
-def entry_triggers_block(df_h1):
-    """E0 entry-confirmation triggers on the latest CLOSED 1H bar, both directions (D025-E0).
-    Backtest (e0-variants): RSI-reclaim > band-reclaim > pin/engulf for FX fades. This block makes
-    them VERIFIABLE at /validate instead of eyeballed. Per-pair primary lives in confluence_criteria.
-    """
-    d = _drop_open_bar(df_h1, 1)
-    if len(d) < 30:
-        return "  (insufficient closed 1H bars for E0 triggers)"
-    o, h, l, c = d["open"], d["high"], d["low"], d["close"]
-    o1, c1, h1, l1 = float(o.iloc[-1]), float(c.iloc[-1]), float(h.iloc[-1]), float(l.iloc[-1])
-    po, pc = float(o.iloc[-2]), float(c.iloc[-2])
-    body = abs(c1 - o1)
-    low_wick, up_wick = min(c1, o1) - l1, h1 - max(c1, o1)
-    pin_bull = body > 0 and low_wick >= 2.5 * body
-    pin_bear = body > 0 and up_wick >= 2.5 * body
-    eng_bull = pc < po and c1 > o1 and c1 >= po and o1 <= pc
-    eng_bear = pc > po and c1 < o1 and c1 <= po and o1 >= pc
-    # RSI(14) reclaim — cross back THROUGH the 35/65 threshold (the strongest gate in backtest)
-    delta = c.diff()
-    ag = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
-    al = (-delta).clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
-    rsi = 100 - 100/(1 + ag/al)
-    rn, rp = float(rsi.iloc[-1]), float(rsi.iloc[-2])
-    rsi_rec_bull, rsi_rec_bear = rp < 35 <= rn, rp > 65 >= rn
-    # Stochastic %K reclaim through 20/80
-    ll, hh = l.rolling(14).min(), h.rolling(14).max()
-    k = (100 * (c - ll) / (hh - ll).replace(0, np.nan)).rolling(3).mean()
-    kn, kp = float(k.iloc[-1]), float(k.iloc[-2])
-    st_rec_bull, st_rec_bear = kp < 20 <= kn, kp > 80 >= kn
-    # Keltner(20 EMA, 2×ATR10) band reclaim — close re-enters the band
-    mid = c.ewm(span=20, adjust=False).mean(); atr = calc_atr_series(d, 10)
-    kl, ku = mid - 2 * atr, mid + 2 * atr
-    bnd_bull = float(c.iloc[-2]) < float(kl.iloc[-2]) and c1 >= float(kl.iloc[-1])
-    bnd_bear = float(c.iloc[-2]) > float(ku.iloc[-2]) and c1 <= float(ku.iloc[-1])
-
-    def fired(d):
-        return " · ".join(d) if d else "none"
-    longs, shorts = [], []
-    if rsi_rec_bull: longs.append(f"RSI-reclaim✦ ({rp:.0f}→{rn:.0f})")
-    if bnd_bull:     longs.append("band-reclaim (Keltner-low re-entry)")
-    if st_rec_bull:  longs.append(f"Stoch-reclaim ({kp:.0f}→{kn:.0f})")
-    if pin_bull:     longs.append("pin (bull)")
-    if eng_bull:     longs.append("engulf (bull)")
-    if rsi_rec_bear: shorts.append(f"RSI-reclaim✦ ({rp:.0f}→{rn:.0f})")
-    if bnd_bear:     shorts.append("band-reclaim (Keltner-high re-entry)")
-    if st_rec_bear:  shorts.append(f"Stoch-reclaim ({kp:.0f}→{kn:.0f})")
-    if pin_bear:     shorts.append("pin (bear)")
-    if eng_bear:     shorts.append("engulf (bear)")
-    bar_t = str(d.index[-1])
-    return (f"  latest closed 1H bar: {bar_t}  (RSI {rn:.0f}, Stoch %K {kn:.0f})\n"
-            f"  LONG-confirm fired:  {fired(longs)}\n"
-            f"  SHORT-confirm fired: {fired(shorts)}\n"
-            f"  ✦ = RSI-reclaim is the highest-R E0 gate (backtest); per-pair primary in "
-            f"confluence_criteria. Toward zone dir only.")
-
-def calc_pivots(d1_df):
-    gw = d1_df.resample("W").agg({"open":"first","high":"max","low":"min","close":"last"}).dropna()
-    b  = gw.iloc[-2]
-    pp = (b["high"] + b["low"] + b["close"]) / 3
-    return {"PP": round(pp,PRICE_DP),
-            "R1": round(2*pp-b["low"],PRICE_DP),    "R2": round(pp+b["high"]-b["low"],PRICE_DP),
-            "R3": round(b["high"]+2*(pp-b["low"]),PRICE_DP),
-            "S1": round(2*pp-b["high"],PRICE_DP),   "S2": round(pp-b["high"]+b["low"],PRICE_DP),
-            "S3": round(b["low"]-2*(b["high"]-pp),PRICE_DP)}
-
-def swing_points(df, n=5):
-    highs, lows = [], []
-    for i in range(n, len(df)-n):
-        if df["high"].iloc[i] == df["high"].iloc[i-n:i+n+1].max():
-            highs.append((str(df.index[i].date()), round(float(df["high"].iloc[i]),PRICE_DP)))
-        if df["low"].iloc[i] == df["low"].iloc[i-n:i+n+1].min():
-            lows.append((str(df.index[i].date()), round(float(df["low"].iloc[i]),PRICE_DP)))
-    return highs[-5:], lows[-5:]
-
-def fib_levels(lo, hi):
-    d = hi - lo
-    return {"swing_low": round(lo,PRICE_DP), "swing_high": round(hi,PRICE_DP),
-            "78.6%": round(hi-0.786*d,PRICE_DP), "61.8%": round(hi-0.618*d,PRICE_DP),
-            "50.0%": round(hi-0.500*d,PRICE_DP), "38.2%": round(hi-0.382*d,PRICE_DP),
-            "ext_127.2%": round(lo+1.272*d,PRICE_DP), "ext_161.8%": round(lo+1.618*d,PRICE_DP)}
-
-def weekend_gap(h4_full, h4_trade):
-    fri = h4_trade[h4_trade.index.dayofweek == 4]
-    if fri.empty:
-        return None
-    last_fri_ts = fri.index[-1]
-    fri_close   = float(fri.iloc[-1]["close"])
-    after = h4_full[h4_full.index > last_fri_ts]
-    if after.empty:
-        return None
-    next_ts   = after.index[0]
-    next_open = float(after.iloc[0]["open"])
-    gap_d   = next_open - fri_close
-    gap_pct = (gap_d / fri_close) * 100
-    flag    = ("RE-FORECAST" if abs(gap_pct) > 1.00 else
-               "WARNING"     if abs(gap_pct) > 0.50 else
-               "NOTE"        if abs(gap_pct) > 0.20 else "NOISE")
-    return {"fri_date": str(last_fri_ts), "fri_close": round(fri_close,PRICE_DP),
-            "next_date": str(next_ts),     "next_open": round(next_open,PRICE_DP),
-            "gap_$": round(gap_d,PRICE_DP), "gap_pct": round(gap_pct,3), "flag": flag}
-
+# Pivots/swings/fibs live in structure.py (shared with the MCP zone-context tool);
+# these thin wrappers inject this run's PRICE_DP so the call sites stay unchanged.
 # ── STEP 5: EXTERNAL FETCHES (no API key) ────────────────────────────────────
-
-def volume_profile(ticker="GC=F", period="3mo", bins=50):
-    try:
-        df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-        if df.empty:
-            return {"error": "empty"}
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        edges = np.linspace(float(df["Low"].min()), float(df["High"].max()), bins+1)
-        vols  = np.zeros(bins)
-        for _, row in df.iterrows():
-            lo, hi, vol = float(row["Low"]), float(row["High"]), float(row["Volume"])
-            br = hi - lo
-            if br == 0 or vol == 0:
-                continue
-            for i in range(bins):
-                ov = min(hi, edges[i+1]) - max(lo, edges[i])
-                if ov > 0:
-                    vols[i] += vol * (ov / br)
-        poc_idx = int(np.argmax(vols))
-        poc = round((edges[poc_idx]+edges[poc_idx+1])/2, PRICE_DP)
-        total = vols.sum(); target = total*0.70
-        lo_i = hi_i = poc_idx; acc = vols[poc_idx]
-        while acc < target and (lo_i > 0 or hi_i < bins-1):
-            add_lo = vols[lo_i-1] if lo_i > 0 else 0
-            add_hi = vols[hi_i+1] if hi_i < bins-1 else 0
-            if add_lo >= add_hi and lo_i > 0: lo_i -= 1; acc += add_lo
-            elif hi_i < bins-1:               hi_i += 1; acc += add_hi
-            else:                             lo_i -= 1; acc += add_lo
-        return {"POC": poc, "VAH": round(edges[hi_i+1],PRICE_DP), "VAL": round(edges[lo_i],PRICE_DP)}
-    except Exception as e:
-        return {"error": str(e)}
 
 def fetch_cot():
     """CFTC Legacy report (non-commercial long/short). Source: cftc.gov yearly zip.
@@ -728,17 +383,6 @@ def fetch_dxy(force=False):
         return {"last_date": str(combined["date"].iloc[-1]), "value": float(combined["value"].iloc[-1]), "rows": len(combined)}
     except Exception as e:
         return {"error": str(e)}
-
-def load_dxy_local():
-    """Returns DataFrame indexed by date with 'value' column (matches load_fred_local interface)."""
-    df = db.read_slice("market_series", {"source": "yahoo", "symbol": "DXY"},
-                       ["date", "value"]) if db else None
-    if df is None or df.empty:
-        df = pd.read_csv(DXY_CSV)[["date", "value"]]
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date").sort_index()
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    return df.dropna()
 
 # ── ECONOMIC CALENDAR (#1/#2 — Forex Factory free JSON) ───────────────────────
 
@@ -937,26 +581,6 @@ def fetch_commodities_yf(tickers: dict):
             out[name] = {"error": str(ex)}
     return out
 
-def load_commodity_local(name: str):
-    """Load a commodity series → date-indexed 'value' frame. DB first (market_series then
-    macro_series), CSV fallback (commodities/ then fred/)."""
-    if db:
-        df = db.read_slice("market_series", {"source": "commodities", "symbol": name}, ["date", "value"])
-        if df is None or df.empty:
-            df = db.read_slice("macro_series", {"series_id": name}, ["date", "value"])
-        if df is not None and not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.set_index("date").sort_index()
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-            return df.dropna()
-    for d in (COMMODITIES_DIR, FRED_DIR):
-        p = d / f"{name}.csv"
-        if p.exists():
-            df = pd.read_csv(p, parse_dates=["date"]).set_index("date").sort_index()
-            df["value"] = pd.to_numeric(df["value"], errors="coerce")
-            return df.dropna()
-    return None
-
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 def fetch_and_update(force=False):
@@ -1013,455 +637,31 @@ def fetch_and_update(force=False):
         for name, info in fetch_commodities_yf(com_yf).items():
             print(f"  → {name}: {info.get('error') or str(info.get('value')) + ' (' + str(info.get('rows')) + ' rows)'}")
 
+    # Positioning (COT) → `cot` table; ETF flows → `gld_holdings` table. Both DB-canonical,
+    # read back by the MCP get_zone_context tool. Non-fatal on failure.
+    if cfg is None or cfg.COT_ENABLED:
+        print("  → COT (CFTC)...")
+        cot = fetch_cot()
+        if isinstance(cot, dict) and "error" not in cot:
+            contract = (cfg.COT_CONTRACT_NAME if cfg else "GOLD - COMMODITY EXCHANGE INC.")
+            row = pd.DataFrame([{"contract": contract, "date": cot["date"],
+                                 "long": cot["long"], "short": cot["short"],
+                                 "net": cot["net"], "net_prev": cot.get("net_prev")}])
+            _db_sync(f"cot:{contract}", lambda r=row, c=contract: db.sync_slice(
+                "cot", {"contract": c}, r))
+
+    if cfg is None or cfg.ETF_ENABLED:
+        print(f"  → ETF flows ({cfg.ETF_TICKER if cfg else 'GLD'})...")
+        fetch_gld_flows()   # syncs the `gld_holdings` table internally
+
     print("✅ CSVs ready.")
     return info_15m
 
 
-def cache_check(force=False):
-    """Returns (out_path, cache_hit_bool). Encapsulates cache-policy gate."""
-    out_path = PULL_DIR / f"weekly_pull_{YEAR}_W{WEEK_NUM:02d}.txt"
-    if out_path.exists() and not force:
-        age_s = time.time() - out_path.stat().st_mtime
-        mtime = datetime.fromtimestamp(out_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-        size  = out_path.stat().st_size
-        if age_s < CACHE_FRESH_SECONDS:
-            print(f"✅ Cache hit: {out_path} ({size} bytes, generated {mtime}, age {int(age_s)}s < {CACHE_FRESH_SECONDS}s)")
-            print("   Skipping fetch (fresh). Use --force to refetch.")
-            return out_path, True
-        if is_market_closed_utc():
-            print(f"✅ Cache hit: {out_path} ({size} bytes, generated {mtime}, age {int(age_s/60)}min)")
-            print("   Skipping fetch (market closed — weekend). Use --force to refetch.")
-            return out_path, True
-        print(f"⚠️  Cache stale ({int(age_s/60)}min old, market open) — refetching.")
-    return out_path, False
-
-
-def build_snapshot():
-    """Read CSVs (no network), compute indicators, write pull snapshot file. Returns path."""
-    out_path = PULL_DIR / f"weekly_pull_{YEAR}_W{WEEK_NUM:02d}.txt"
-    return _compute_and_write(out_path)
-
-
 def run(force=False):
-    out_path, hit = cache_check(force=force)
-    if hit:
-        return str(out_path)
-
-    # 1. Fetch + resample + FRED
+    """Fetch every source and sync it to the canonical DB. The AI leg reads the result
+    back through MCP (get_zone_context / sql_query) — no snapshot file is written."""
     fetch_and_update(force=force)
-
-    # 2. Compute + write
-    return _compute_and_write(out_path)
-
-
-def _compute_and_write(out_path):
-    cfg = _instrument_cfg  # may be None if called without load_instrument (legacy mode)
-
-    # Load local data
-    print("Computing indicators...")
-    price_d       = load_ohlc(TD_DIR / "1day.csv")
-    price_h4_full = load_ohlc(TD_DIR / "4h.csv")
-    price_h4      = filter_trading_session(price_h4_full.reset_index(), "4h").set_index("datetime")
-    price_h1      = load_ohlc(TD_DIR / "1h.csv")   # for time-at-price (USD-base VP substitute)
-
-    # Drop open (still-forming) candle before ATR calcs — fully closed bars only
-    price_d_closed  = _drop_open_bar(price_d,  24)   # D1 bar closes 24h after open
-    price_h4_closed = _drop_open_bar(price_h4,  4)   # H4 bar closes 4h after open
-
-    # External fetches — conditional on instrument config
-    vp_ticker = cfg.VP_TICKER if cfg else "GC=F"
-    if vp_ticker:
-        print(f"  → Volume Profile (yfinance {vp_ticker})...")
-        vp = volume_profile(ticker=vp_ticker)
-    else:
-        # USD-base pairs: futures chart is the pair upside-down — VP levels unusable.
-        vp = {"disabled": f"VP disabled for {SYM_CLEAN} (no usable futures proxy)"}
-
-    if cfg is None or cfg.COT_ENABLED:
-        print("  → COT (CFTC)...")
-        cot = fetch_cot()
-    else:
-        cot = {"error": f"COT disabled for {SYM_CLEAN} (system TBD)"}
-
-    if cfg is None or cfg.ETF_ENABLED:
-        etf_label = cfg.ETF_TICKER if cfg else "GLD"
-        print(f"  → ETF flows ({etf_label})...")
-        gld = fetch_gld_flows()
-    else:
-        gld = {"error": f"ETF flows disabled for {SYM_CLEAN} (no equivalent ETF)"}
-
-    # Alias back to local names used throughout the rest of this function
-    gold_d       = price_d
-    gold_h4_full = price_h4_full
-    gold_h4      = price_h4
-    gold_d_closed  = price_d_closed
-    gold_h4_closed = price_h4_closed
-
-    # 5. Indicators
-    atr_d  = calc_atr(gold_d_closed)
-    atr_h4 = calc_atr(gold_h4_closed)
-
-    d1_atr_s   = calc_atr_series(gold_d_closed)
-    atr_d_now  = round(float(d1_atr_s.iloc[-1]), PRICE_DP)
-    atr_d_med  = round(float(d1_atr_s.iloc[-20:].median()), PRICE_DP)
-    compressed = atr_d_now < atr_d_med
-
-    # All indicators on CLOSED bars only (same policy as ATR) — a forming bar would
-    # make RSI/ADX/MACD drift intraday and two same-day runs disagree.
-    adx_val   = calc_adx(gold_d_closed)
-    ema50     = calc_ema(gold_d_closed["close"], 50)
-    ema200    = calc_ema(gold_d_closed["close"], 200)
-    rsi_vals  = calc_rsi_series(gold_d_closed)
-    macd_rows = calc_macd(gold_d_closed)
-    boll      = calc_bollinger(gold_d_closed)
-    gap       = weekend_gap(gold_h4_full, gold_h4)
-    pvt       = calc_pivots(gold_d_closed)
-    sh, sl    = swing_points(gold_d_closed)
-    sh_h4, sl_h4 = swing_points(gold_h4_closed)
-
-    rec_hi = sh[-1][1] if sh else float(gold_d_closed["high"].tail(30).max())
-    rec_lo = sl[-1][1] if sl else float(gold_d_closed["low"].tail(30).min())
-    fibs   = fib_levels(rec_lo, rec_hi)
-
-    # FRED derived — shared risk series
-    dxy = load_dxy_local(); vix = load_fred_local("VIXCLS")
-    ff  = load_fred_local("DFF")
-    gc = float(gold_d["close"].iloc[-1]); gp = float(gold_d["close"].iloc[-6])
-    dc = float(dxy["value"].iloc[-1]);    dp = float(dxy["value"].iloc[-6])
-
-    # SL per constitution v2: H4 ATR is the FLOOR; half-D1 only lifts it (never shrinks).
-    #   if 0.5×D1 < H4 → SL = H4   else → SL = avg(0.5×D1, H4)
-    d1_floor = 0.5 * atr_d
-    sl_v2 = atr_h4 if d1_floor < atr_h4 else round((d1_floor + atr_h4) / 2, PRICE_DP)
-
-    adx_regime = ("TRENDING (favor continuation/trend setups; floor 6.0)"      if adx_val > 25  else
-                  "TRANSITIONAL (chop risk → /validate floor raised to 6.5)"   if adx_val >= 20 else
-                  "RANGING (favor reversal/counter at zone edges; floor 6.0)")
-
-    rsi_now = rsi_vals[-1][1]; rsi_old = rsi_vals[0][1]
-
-    # ── MACRO block + baselines — driver depends on instrument MACRO_MODE ──────
-    display = _instrument_cfg.DISPLAY_NAME if _instrument_cfg else SYM_CLEAN.upper()
-    macro_mode = getattr(cfg, "MACRO_MODE", "real_yield")
-    baseline_extra = ""  # optional extra baseline lines (e.g. FX policy diff)
-
-    if macro_mode == "rate_diff":
-        # FX vs USD: US 2Y slope = direction (USD rate momentum); DFF − foreign policy = carry regime.
-        # USD-base pairs (USDJPY etc., USD_BETA_SIGN=+1): USD strength is BULLISH the pair — flip labels.
-        # RATE_FOREIGN=None (AUD/NZD/CAD/CHF — no daily FRED policy series; carry-diff proven DEAD,
-        # D021/D024): skip the policy-diff carry lines, keep US2Y direction + VIX.
-        us  = load_fred_local(cfg.RATE_US)        # US 2Y (DGS2)
-        us_now  = float(us["value"].iloc[-1]); us_prev = float(us["value"].iloc[-6])
-        us_20d  = us["value"].iloc[-21:]
-        us_slope = float(np.polyfit(range(len(us_20d)), us_20d.values, 1)[0])
-        us_drift = us_now - float(us["value"].iloc[-2])
-        ffr      = float(ff["value"].iloc[-1])
-        usd_base = getattr(cfg, "USD_BETA_SIGN", -1) > 0
-        up_lbl   = (f'RISING ✅ (USD strength, bullish {display})' if usd_base
-                    else f'RISING ⚠  (USD strength, bearish {display})')
-        dn_lbl   = (f'FALLING ⚠  (USD softness, bearish {display})' if usd_base
-                    else f'FALLING ✅ (USD softness, bullish {display})')
-        macro_block = (
-            f"US 2Y (DGS2):     {us_now}% (was {us_prev}% ~1w ago, Δ {round(us_now-us_prev,3):+}%)\n"
-            f"  → {up_lbl if us_now > us_prev else dn_lbl}\n"
-            f"  20d slope: {us_slope:+.4f} %/day  {'(rising trend)' if us_slope > 0 else '(falling trend)'}\n"
-            f"  1d drift:  {us_drift:+.3f}%\n"
-            f"Fed Funds:        {ffr:.2f}%\n")
-        if getattr(cfg, "RATE_FOREIGN", None):
-            fp  = load_fred_local(cfg.RATE_FOREIGN)   # foreign policy rate (ECBDFR / SONIA)
-            fpr = float(fp["value"].iloc[-1])
-            pol_diff = ffr - fpr
-            # Join on date — DFF is a 7-day series, foreign policy rates are business-day;
-            # raw iloc[-6] on each would compare different calendar dates.
-            joined = ff.join(fp, how="inner", lsuffix="_us", rsuffix="_f").dropna()
-            pol_diff_prev = float(joined["value_us"].iloc[-6]) - float(joined["value_f"].iloc[-6])
-            pol_dd   = pol_diff - pol_diff_prev
-            wide_lbl = (f'WIDENING (USD carry up, bullish {display})' if usd_base
-                        else f'WIDENING (USD carry up, bearish {display})')
-            narr_lbl = (f'NARROWING (USD carry down, bearish {display})' if usd_base
-                        else f'NARROWING (USD carry down, bullish {display})')
-            macro_block += (
-                f"{cfg.RATE_FOREIGN_NAME + ':':<18}{fpr:.2f}%\n"
-                f"Policy diff (US−{cfg.FOREIGN_CCY}): {pol_diff:+.2f}% (was {pol_diff_prev:+.2f}%, Δ {pol_dd:+.2f}%)\n"
-                f"  → {wide_lbl if pol_dd > 0 else narr_lbl}\n")
-            baseline_extra = f"baseline_policy_diff: {round(pol_diff,3)}\n"
-        else:
-            macro_block += (f"Foreign policy ({cfg.FOREIGN_CCY}): no daily FRED series — "
-                            f"carry leg skipped (dead signal, D021/D024)\n")
-        macro_block += f"VIX:              {float(vix['value'].iloc[-1]):.2f}"
-        baseline_label = "baseline_dgs2"; baseline_val = us_now
-    elif macro_mode == "cross_rate_diff" and getattr(cfg, "RATE_GBP", None) is None:
-        # ONE-LEG cross (EURJPY/GBPJPY): second leg has no daily FRED series (BoJ) → no rate diff.
-        # Live leg rides the RATE_EUR slot (ECBDFR for eurjpy, IUDSOIA for gbpjpy).
-        # Macro = live policy leg only, LOW-weight NON-SCORING tilt. VIX polarity per-pair empirical.
-        leg = load_fred_local(cfg.RATE_EUR)
-        leg_label = getattr(cfg, "LIVE_LEG_LABEL", f"ECB Deposit ({cfg.RATE_EUR})")
-        leg_ccy   = getattr(cfg, "LIVE_LEG_CCY", "EUR")
-        leg_now = float(leg["value"].iloc[-1]); leg_20d = float(leg["value"].iloc[-21])
-        macro_block = (
-            f"⚠ {display} CROSS — one-leg macro (no daily {getattr(cfg,'RATE_FOREIGN_NAME','foreign')} series); "
-            f"LOW-weight NON-SCORING tilt.\n"
-            f"  {leg_label}: {leg_now:.2f}%  (was {leg_20d:.2f}% 20d ago, Δ {leg_now-leg_20d:+.2f}%)\n"
-            f"  → {leg_ccy + ' carry UP (bullish ' + display + ')' if leg_now - leg_20d > 0.005 else leg_ccy + ' carry DOWN (bearish ' + display + ')' if leg_20d - leg_now > 0.005 else 'FLAT (policy step unchanged)'}\n"
-            f"VIX:              {float(vix['value'].iloc[-1]):.2f}  (carry barometer — polarity per-pair, see signal-results)")
-        baseline_label = getattr(cfg, "BASELINE_LABEL", "baseline_ecb_rate"); baseline_val = round(leg_now, 3)
-    elif macro_mode == "cross_rate_diff":
-        # EUR/GBP CROSS: no USD leg. Direction tilt = EUR−GBP rate differential (ECBDFR − SONIA).
-        # EG2: cross macro is THIN/DEAD on free daily data → LOW-weight, NON-SCORING tilt only.
-        # See wiki/research/eurgbp/signal-results.md.
-        eur = load_fred_local(cfg.RATE_EUR)   # ECB Deposit Facility Rate (ECBDFR)
-        gbp = load_fred_local(cfg.RATE_GBP)   # GBP SONIA (IUDSOIA)
-        eur_now = float(eur["value"].iloc[-1]); gbp_now = float(gbp["value"].iloc[-1])
-        diff_now  = eur_now - gbp_now
-        eur_20d   = float(eur["value"].iloc[-21]); gbp_20d = float(gbp["value"].iloc[-21])
-        diff_20d  = eur_20d - gbp_20d
-        diff_chg  = diff_now - diff_20d
-        # diff rising (EUR rates up rel to GBP) → EURGBP UP.
-        macro_block = (
-            f"⚠ EUR/GBP CROSS — macro = LOW-weight NON-SCORING tilt (EG2: cross macro thin/dead).\n"
-            f"  ECB Deposit (ECBDFR): {eur_now:.2f}%\n"
-            f"  GBP SONIA (IUDSOIA):  {gbp_now:.2f}%\n"
-            f"  Rate diff (EUR−GBP):  {diff_now:+.2f}%  (was {diff_20d:+.2f}% 20d ago, Δ {diff_chg:+.2f}%)\n"
-            f"  → {f'WIDENING (EUR carry up, bullish EURGBP)' if diff_chg > 0 else f'NARROWING (EUR carry down, bearish EURGBP)' if diff_chg < 0 else 'FLAT'}\n"
-            f"VIX:              {float(vix['value'].iloc[-1]):.2f}  (EG4: risk-off polarity INVERTED vs USD-majors)")
-        baseline_label = "baseline_rate_diff"; baseline_val = round(diff_now, 3)
-    else:
-        # XAUUSD: real-yield driven (single driver).
-        ny  = load_fred_local("DGS10"); be = load_fred_local("T5YIE")
-        ry  = load_fred_local("DFII10")
-        ry_now  = float(ry["value"].iloc[-1]); ry_prev = float(ry["value"].iloc[-6])
-        ry_20d  = ry["value"].iloc[-21:]
-        ry_slope = float(np.polyfit(range(len(ry_20d)), ry_20d.values, 1)[0])
-        ry_drift = ry_now - float(ry["value"].iloc[-2])
-        macro_block = (
-            f"Fed Funds:        {float(ff['value'].iloc[-1]):.2f}%\n"
-            f"10Y Nominal:      {float(ny['value'].iloc[-1]):.2f}%\n"
-            f"10Y Real (TIPS):  {ry_now}% (was {ry_prev}% ~1w ago, Δ {round(ry_now-ry_prev,3):+}%)\n"
-            f"  → {'RISING ⚠  (bearish gold)' if ry_now > ry_prev else 'FALLING ✅ (bullish gold)'}\n"
-            f"  20d slope: {ry_slope:+.4f} %/day  {'(rising trend)' if ry_slope > 0 else '(falling trend)'}\n"
-            f"  1d drift:  {ry_drift:+.3f}%\n"
-            f"5Y Breakeven:     {float(be['value'].iloc[-1]):.2f}%\n"
-            f"VIX:              {float(vix['value'].iloc[-1]):.2f}")
-        baseline_label = "baseline_dfii10"; baseline_val = ry_now
-
-    # Format blocks
-    if cot and "error" not in cot:
-        net_str = f"{cot['net']:+,}"; chg_str = f"{cot['net_chg']:+,}" if cot["net_chg"] is not None else "N/A"
-        cot_label = (_instrument_cfg.COT_CONTRACT_NAME if _instrument_cfg else "GOLD").split(" - ")[0]
-        # USD-base pairs: futures quote the FOREIGN ccy → spec net long future = SHORT the pair.
-        cot_inv = getattr(_instrument_cfg, "COT_INVERTED", False) if _instrument_cfg else False
-        if cot_inv:
-            stance = (f"spec long {cot_label} = BEARISH {display}" if cot['net'] > 0
-                      else f"spec short {cot_label} = BULLISH {display}")
-        else:
-            stance = 'BULLISH (spec long)' if cot['net'] > 0 else 'BEARISH (spec short)'
-        cot_block = (f"━━━ COT — CFTC {cot_label} FUTURES (non-commercial, as of {cot['date']}) ━━━━━━\n"
-                     f"Spec Long:      {cot['long']:,}\nSpec Short:     {cot['short']:,}\n"
-                     f"Net Position:   {net_str}  ({stance}){'  ⚠ INVERTED READ (USD-base pair)' if cot_inv else ''}\n"
-                     f"W/W Change:     {chg_str}  ({'INCREASING' if (cot['net_chg'] or 0)>0 else 'DECREASING'})\n"
-                     f"Note: net-position extremes vs 1y range = crowded = reversal risk (per-instrument threshold)")
-    else:
-        cot_block = f"━━━ COT — CFTC FUTURES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nFetch failed: {(cot or {}).get('error','no data')}"
-
-    if gld and "error" not in gld:
-        wk = f"{gld['wk_chg']:+}" if gld["wk_chg"] is not None else "N/A"
-        mo = f"{gld['mo_chg']:+}" if gld["mo_chg"] is not None else "N/A"
-        bias = "INFLOW (bullish)" if (gld["wk_chg"] or 0) > 0 else "OUTFLOW (bearish)" if (gld["wk_chg"] or 0) < 0 else "FLAT"
-        gld_block = (f"━━━ ETF FLOWS — SPDR GLD (tonnes held, as of {gld['date']}) ━━━\n"
-                     f"Tonnes:         {gld['tonnes']}\n1w Δ tonnes:    {wk}  ({bias})\n4w Δ tonnes:    {mo}\n"
-                     f"Note: persistent outflows during macro BEARISH = confirmation. Inflows against bias = warning.")
-    else:
-        gld_block = f"━━━ ETF FLOWS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nFetch failed: {(gld or {}).get('error','no data')}"
-
-    if gap and "error" not in gap:
-        gap_block = (f"━━━ WEEKEND GLOBEX GAP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                     f"Fri close:   ${gap['fri_close']}  ({gap['fri_date']})\n"
-                     f"Sun reopen:  ${gap['next_open']}  ({gap['next_date']})\n"
-                     f"Gap:         ${gap['gap_$']}  ({gap['gap_pct']:+}%)  → {gap['flag']}\n"
-                     f"Thresholds: <0.20% NOISE | 0.20–0.50% NOTE | 0.50–1.00% WARNING | >1.00% RE-FORECAST")
-    else:
-        gap_block = "━━━ WEEKEND GLOBEX GAP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nNo Sunday reopen bar found"
-
-    vp_block = (f"VAH: ${vp['VAH']}\nPOC: ${vp['POC']}  ← highest volume node\nVAL: ${vp['VAL']}"
-                if not (vp.get("error") or vp.get("disabled"))
-                else vp.get("disabled") or f"VP fetch failed: {vp['error']}")
-
-    # Intermarket commodity block (#3) — only for pairs declaring COMMODITY_* (AUD/NZD).
-    com_names = (list(getattr(cfg, "COMMODITY_FRED", []) or [])
-                 + list((getattr(cfg, "COMMODITY_YF", {}) or {}).keys())) if cfg else []
-    intermarket_block = ""
-    if com_names:
-        lines = []
-        for nm in com_names:
-            s = load_commodity_local(nm)
-            if s is None or s.empty:
-                lines.append(f"{nm:<10} no data"); continue
-            now = float(s["value"].iloc[-1])
-            wk  = float(s["value"].iloc[-6]) if len(s) >= 6 else now
-            chg = ((now / wk) - 1) * 100 if wk else 0.0
-            w20 = s["value"].iloc[-21:]
-            slope = float(np.polyfit(range(len(w20)), w20.values, 1)[0]) if len(w20) >= 2 else 0.0
-            lines.append(f"{nm:<10} {now:<10.4g} (Δ1w {chg:+.2f}%, 20d slope {slope:+.4g}/day)")
-        intermarket_block = (
-            "\n━━━ INTERMARKET (commodity proxies — narrative context, NOT scored) ━━\n"
-            + "\n".join(lines)
-            + "\n  Rising copper/iron ore/dairy = risk-on commodity bid → pair-BULLISH context "
-              "(China-demand proxy). Use in Section 1/4 only.\n")
-
-    # ── Oscillators (#C) — computed for D1 + H4, the values Z2 engines read ──
-    osc_d_txt,  osc_d_ex  = oscillator_block(gold_d_closed,  "D1")
-    osc_h4_txt, osc_h4_ex = oscillator_block(gold_h4_closed, "H4")
-    osc_extremes = osc_d_ex + osc_h4_ex
-    oscillators_block = (
-        f"{osc_d_txt}\n{osc_h4_txt}\n"
-        f"  EXTREMES: {' · '.join(osc_extremes) if osc_extremes else 'none (no oscillator at extreme)'}")
-
-    # ── Market structure (#B) — BOS/CHoCH on D1 + H4 (was narrative-only) ──
-    def _struct_line(df, tf):
-        se = structure_events(df, lookback=60)
-        last = se["last"]
-        if last is None:
-            return f"  {tf}: state {se['state'].upper()} | no BOS/CHoCH in last 60 bars"
-        age = len(df.tail(60)) - 1 - last["pos"]
-        return (f"  {tf}: state {se['state'].upper()} | last {last['type']} {last['dir'].upper()} "
-                f"@ {last['level']} ({last['time']}, {age} bars ago)")
-    structure_block = f"{_struct_line(gold_d_closed, 'D1')}\n{_struct_line(gold_h4_closed, 'H4')}"
-
-    # ── Entry triggers (#E0) — RSI/band/Stoch reclaim + pin/engulf on latest closed 1H bar ──
-    entry_trig_block = entry_triggers_block(price_h1)
-
-    # ── Time-at-price (#B) — VP substitute for USD-base pairs (tick volume is 0) ──
-    tap_block = ""
-    if not vp_ticker:  # VP disabled = USD-base pair → acceptance histogram instead
-        tap = time_at_price(price_h1, window=480)
-        if tap:
-            tap_block = (f"\n━━━ TIME-AT-PRICE (H1 acceptance — VP substitute, NOT volume) ━━\n"
-                         f"HTN (most-accepted): {round(tap['htn'], PRICE_DP)}\n"
-                         f"Value area: {round(tap['va_low'], PRICE_DP)} – {round(tap['va_high'], PRICE_DP)} (70% of time)\n"
-                         f"Use as S/R confluence like a POC/VA — acceptance, not traded volume.\n")
-
-    # ── News feed (#A) — recent pair-filtered headlines from the store ──
-    news_block = ""
-    nf0 = db.read_table("news") if db else None
-    if (nf0 is None or nf0.empty) and NEWS_CSV.exists():
-        nf0 = pd.read_csv(NEWS_CSV, dtype=str)
-    if nf0 is not None and not nf0.empty:
-        try:
-            nf = nf0.fillna("").sort_values("datetime_utc").tail(40)
-            kws = _NEWS_KEYWORDS.get(SYM_CLEAN, []) + ["fed", "fomc", "rate", "inflation", "cpi"]
-            hits = nf[nf["headline"].str.lower().apply(lambda h: any(k in h for k in kws))].tail(8)
-            if not hits.empty:
-                rows = [f"  {r['datetime_utc'][:10]} [{r['source']}] {r['headline']}"
-                        for _, r in hits.iterrows()]
-                news_block = ("\n━━━ NEWS FEED (recent, pair-filtered — context for Section 2) ━━\n"
-                              + "\n".join(rows) + "\n")
-        except Exception:
-            news_block = ""
-
-    out = f"""
-╔══════════════════════════════════════════════════════╗
-  {display} WEEKLY DATA — {TODAY.strftime('%Y-%m-%d')} (W{WEEK_NUM})
-╚══════════════════════════════════════════════════════╝
-
-━━━ MACRO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{macro_block}
-
-━━━ PRICE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{display}:{' '*max(1,16-len(display))}${gc:.{PRICE_DP}f} (was ${gp:.{PRICE_DP}f}, {round(((gc/gp)-1)*100,2):+.2f}% ~1w chg)
-{'' if macro_mode == 'cross_rate_diff' else f'DXY (ICE 6-cur):  {dc:.3f}  (was {dp:.3f},  {round(((dc/dp)-1)*100,2):+.2f}% ~1w chg)'}
-
-━━━ INDICATORS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ATR(14) Daily:    ${atr_d}
-ATR(14) H4:       ${atr_h4}  (trading days only)
-SL (constitution v2): ${round(sl_v2, PRICE_DP)} = {"H4 ATR (floor — 0.5×D1 " + str(round(d1_floor, PRICE_DP)) + " < H4)" if d1_floor < atr_h4 else "avg(0.5×D1 " + str(round(d1_floor, PRICE_DP)) + ", H4 " + str(atr_h4) + ")"}
-D1 ATR now:       ${atr_d_now} | 20d median: ${atr_d_med} → {"COMPRESSED ✅" if compressed else "EXPANDING ⚠"}
-
-ADX(14) D1:       {adx_val} → {adx_regime}
-EMA 50 D1:        ${ema50} | Price {"ABOVE" if gc > ema50 else "BELOW"}
-EMA 200 D1:       ${ema200} | Price {"ABOVE" if gc > ema200 else "BELOW"}
-RSI(14) D1:       {rsi_now} (was {rsi_old} 10 bars ago, {"rising" if rsi_now > rsi_old else "falling"})
-Bollinger(20,2):  upper ${boll['upper']} | mid ${boll['mid']} | lower ${boll['lower']} | %B {boll['pctb']} → {boll['pos']}
-
-RSI D1 (last 10 bars):
-{chr(10).join([f"  {v[0]}: {v[1]}" for v in rsi_vals])}
-
-MACD(12,26,9) D1 — last 5 bars:
-  {"Date":<12} {"MACD":>8} {"Signal":>8} {"Hist":>8}
-{chr(10).join([f"  {r[0]:<12} {r[1]:>8} {r[2]:>8} {r[3]:>8}" for r in macd_rows])}
-  Histogram {"POSITIVE (bullish momentum)" if macd_rows[-1][3] > 0 else "NEGATIVE (bearish momentum)"}
-  Cross: {"MACD above signal (bullish)" if macd_rows[-1][1] > macd_rows[-1][2] else "MACD below signal (bearish)"}
-
-━━━ OSCILLATORS (D1 / H4 — Z2 engine inputs, were eyeballed pre-D025) ━━
-{oscillators_block}
-
-━━━ MARKET STRUCTURE (BOS/CHoCH, fractal N=2) ━━━━━━━━━━━
-{structure_block}
-
-━━━ ENTRY TRIGGERS (E0, latest closed 1H — reclaim > pin/engulf, D027) ━━
-{entry_trig_block}
-
-━━━ VOLUME PROFILE ({vp_ticker or 'disabled'}, 3mo daily) ━━━━━━━━━━━━
-{vp_block}
-VP check: zone within ~8 units of POC/VAH/VAL = confluent
-{tap_block}
-
-{cot_block}
-
-{gld_block}
-
-{gap_block}
-{intermarket_block}{news_block}
-━━━ BASELINES (snapshot for forecast frontmatter) ━━━━
-{baseline_label}: {baseline_val}
-{baseline_extra}baseline_dxy:    {dc:.3f}
-weekend_gap_pct: {gap['gap_pct'] if gap and 'gap_pct' in gap else 'N/A'}
-
-━━━ WEEKLY PIVOTS (prior week OHLC) ━━━━━━━━━━━━━━━━━━
-R3:{pvt['R3']}  R2:{pvt['R2']}  R1:{pvt['R1']}
-PP:{pvt['PP']}
-S1:{pvt['S1']}  S2:{pvt['S2']}  S3:{pvt['S3']}
-
-━━━ SWING POINTS (Daily, N=5) ━━━━━━━━━━━━━━━━━━━━━━━━
-Highs: {' | '.join([f"${h[1]}({h[0]})" for h in sh])}
-Lows:  {' | '.join([f"${l[1]}({l[0]})" for l in sl])}
-
-━━━ SWING POINTS (H4, N=5, trading days) ━━━━━━━━━━━━━
-Highs: {' | '.join([f"${h[1]}({h[0]})" for h in sh_h4])}
-Lows:  {' | '.join([f"${l[1]}({l[0]})" for l in sl_h4])}
-
-━━━ FIBONACCI (anchored to last D1 swing high/low) ━━━
-Swing: ${fibs['swing_low']} → ${fibs['swing_high']}
-  78.6%:      ${fibs['78.6%']}
-  61.8%:      ${fibs['61.8%']}  ← golden pocket
-  50.0%:      ${fibs['50.0%']}
-  38.2%:      ${fibs['38.2%']}
-  Ext 127.2%: ${fibs['ext_127.2%']}
-  Ext 161.8%: ${fibs['ext_161.8%']}  ← TP extension zone
-
-━━━ DAILY OHLCV — last 15 bars ━━━━━━━━━━━━━━━━━━━━━━━
-{gold_d[['open','high','low','close']].tail(15).round(PRICE_DP).to_string()}
-
-━━━ H4 OHLCV — last 24 bars (trading days) ━━━━━━━━━━━
-{gold_h4[['open','high','low','close']].tail(24).round(PRICE_DP).to_string()}
-
-Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC ({datetime.now().astimezone().strftime('%H:%M %Z')} local)
-"""
-    PULL_DIR.mkdir(parents=True, exist_ok=True)
-    # Immutability guard (File Rules): a weekly_pull_*.txt is frozen after its week's Monday open.
-    # The target week is always the current ISO week, so the only clobber risk is a same-week
-    # re-pull on a later day (e.g. a Sunday --force overwriting Monday's frozen snapshot — the
-    # 2026-W25 JPY incident). Refuse to overwrite a snapshot first written on an earlier calendar
-    # day unless explicitly overridden.
-    if out_path.exists() and not ALLOW_IMMUTABLE_REWRITE:
-        created = datetime.fromtimestamp(out_path.stat().st_mtime).date()
-        if created < datetime.now().date():
-            print(f"🛑 IMMUTABLE: {out_path.name} frozen since {created} (File Rules). "
-                  f"Refusing overwrite — pass --rewrite-immutable to override.")
-            return str(out_path)
-    out_path.write_text(out)
-    print(out)
-    print(f"✅ Saved to {out_path}")
-    return str(out_path)
 
 
 if __name__ == "__main__":
@@ -1470,10 +670,7 @@ if __name__ == "__main__":
     ap.add_argument("--instrument", default="xauusd",
                     choices=list(REGISTERED_INSTRUMENTS) + ["all"],
                     help="Instrument to run (default: xauusd). 'all' runs every registered instrument.")
-    ap.add_argument("--rewrite-immutable", action="store_true",
-                    help="Override the weekly-pull freeze guard (allow overwriting a prior-day snapshot)")
     args = ap.parse_args()
-    ALLOW_IMMUTABLE_REWRITE = args.rewrite_immutable
 
     to_run = list(REGISTERED_INSTRUMENTS) if args.instrument == "all" else [args.instrument]
     for i, inst in enumerate(to_run):

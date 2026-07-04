@@ -61,7 +61,7 @@ def load_calendar() -> pd.DataFrame:
     if (df is None or df.empty) and ECON_CSV.exists():
         df = pd.read_csv(ECON_CSV, dtype=str).fillna("")
     if df is None or df.empty:
-        print(f"❌ No econ calendar in data/index.db or {ECON_CSV} — run fetch_data.py (Forex "
+        print(f"❌ No econ calendar in data/database/index.db or {ECON_CSV} — run fetch_data.py (Forex "
               f"Factory free JSON, no key) before trusting the no-trade calendar. Web-search fallback applies.")
         sys.exit(1)
     df = df.fillna("")

@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS gld_holdings (
   spot double precision
 );
 
+CREATE TABLE IF NOT EXISTS cot (
+  contract text NOT NULL,
+  date date NOT NULL,
+  long bigint,
+  short bigint,
+  net bigint,
+  net_prev bigint,
+  PRIMARY KEY (contract, date)
+);
+
 CREATE TABLE IF NOT EXISTS news (
   datetime_utc timestamptz NOT NULL,
   category text,

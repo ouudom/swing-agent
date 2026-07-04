@@ -19,6 +19,9 @@ from pathlib import Path
 SRC_ROOT = Path(__file__).resolve().parents[1]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+ENGINE_SCRIPTS = SRC_ROOT / "engine" / "scripts"
+if str(ENGINE_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(ENGINE_SCRIPTS))  # zone_context + its db/structure/backtest_signals deps
 
 from engine import commands  # noqa: E402
 
@@ -243,6 +246,15 @@ def compute_indicators(instrument: str, tf: str = "1h", limit: int = 200):
         "sma20": sum(closes[-20:]) / 20 if len(closes) >= 20 else None,
         "sma50": sum(closes[-50:]) / 50 if len(closes) >= 50 else None,
     }
+
+
+def get_zone_context(instrument: str):
+    """Full deterministic zone-scoring context for /weekly, assembled from the DB:
+    structure (pivots/swings/fibs/BOS-CHoCH/time-at-price), momentum (D1+H4), ATR + SL
+    preview, macro (DXY/VIX/FRED), and COT positioning. DB-native replacement for the
+    retired weekly_pull_*.txt dump — the numbers the AI needs to publish Trading Zones."""
+    import zone_context
+    return zone_context.build(instrument)
 
 
 def command_payload(result: commands.CommandResult):
@@ -499,6 +511,7 @@ TOOLS = {
     "get_econ": get_econ,
     "get_calibration": get_calibration,
     "compute_indicators": compute_indicators,
+    "get_zone_context": get_zone_context,
     "run_gate": run_gate,
     "run_replay": run_replay,
     "run_calibration": run_calibration,

@@ -39,8 +39,9 @@ export MCP_URL=http://127.0.0.1:8765
 export MCP_AUTH_TOKEN=<token>
 
 # For all 11 instruments:
-# 1. Call MCP get_brief/run_replay/get_calibration/get_news/get_econ.
-# 2. Write weekly forecast markdown.
+# 1. Call MCP get_zone_context (structure/momentum/macro/ATR+SL/COT) +
+#    get_brief/run_replay/get_calibration/get_news/get_econ.
+# 2. Score Trading Zones; write weekly forecast markdown.
 # 3. For every published zone: MCP publish_zone.
 # 4. git add + commit + push.
 ```

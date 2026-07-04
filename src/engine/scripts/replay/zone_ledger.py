@@ -68,7 +68,7 @@ VERDICTS = ["PENDING", "ORDER_LIMIT", "NO_TRADE", "INVALIDATED"]
 
 
 def load_ledger() -> pd.DataFrame:
-    # Canonical store = data/index.db (table `zone_ledger`); CSV is a mirror.
+    # Canonical store = data/database/index.db (table `zone_ledger`); CSV is a mirror.
     df = db.read_table(TABLE, columns=COLUMNS)
     if not df.empty:
         return df
@@ -104,7 +104,7 @@ def cmd_add(args):
         "invalidation_level": args.invalidation_level if args.invalidation_level is not None else "",
         "tp_anchor": args.tp_anchor if args.tp_anchor is not None else "",
         "published_utc": args.published or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source_file": args.source_file or f"forecasts/weekly/{args.instrument}/{args.week}.md",
+        "source_file": args.source_file or f"wiki/weekly-forecasts/{args.week.replace('-', '')}/{args.instrument}.md",
         "status": "OPEN",
         "notes": args.notes or "",
         "entry_confluence": "",

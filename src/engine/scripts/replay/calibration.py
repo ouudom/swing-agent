@@ -285,7 +285,7 @@ def main():
     if (df is None or df.empty) and OUTCOMES_CSV.exists():
         df = pd.read_csv(OUTCOMES_CSV, dtype={"week": str})
     if df is None or df.empty:
-        sys.exit("no zone_outcome rows in data/index.db — run zone_outcomes.py first")
+        sys.exit("no zone_outcome rows in data/database/index.db — run zone_outcomes.py first")
     for c in ("zone_confluence", "r_result", "mfe_r", "mae_r", "sl_dist", "entry"):
         if c in df.columns:                          # DB read is all-string → restore numerics
             df[c] = pd.to_numeric(df[c], errors="coerce")

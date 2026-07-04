@@ -159,7 +159,7 @@ claude mcp add --transport http swing-agent \
   --header "Authorization: Bearer $MCP_AUTH_TOKEN"
 ```
 
-All 14 tools (`get_brief`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
+All 15 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
 `run_calibration`, `get_news`, `get_econ`, `get_calibration`, `compute_indicators`,
 `publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint`) then appear
 in Claude Code with schemas auto-derived from the Python signatures.

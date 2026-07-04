@@ -27,13 +27,15 @@ calendar). **`wiki/` = canonical for every word** (rules, forecasts, validations
 a derived number in `wiki/` — recompute it via MCP each time.
 
 ## MCP — your only gateway to the app
-Two transports, same 14 tools, one Postgres backend:
+Two transports, same 15 tools, one Postgres backend:
 - `mcp-server` (REST, port 8765) — `curl`-style, `/call` + `/tools/<name>`.
 - `mcp-native` (native MCP, port 8766) — register via `claude mcp add --transport http
   swing-agent http://<host>:8766/mcp --header "Authorization: Bearer $MCP_AUTH_TOKEN"`.
 
-Tools: `get_brief`, `sql_query` (read-only SELECT/WITH/SHOW only), `get_news`, `get_econ`,
-`get_calibration`, `compute_indicators`, `run_gate`, `run_replay`, `run_calibration`,
+Tools: `get_brief`, `get_zone_context` (full DB-native zone-scoring context for /weekly —
+structure/momentum/macro/ATR+SL/COT; replaces the old weekly_pull txt), `sql_query`
+(read-only SELECT/WITH/SHOW only), `get_news`, `get_econ`, `get_calibration`,
+`compute_indicators`, `run_gate`, `run_replay`, `run_calibration`,
 `run_backtest` (allowlisted scripts + args only) — data/compute, read-only or sandboxed.
 `publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint` — structured writes,
 idempotent (upsert on natural key). **`write_verdict` hard-rejects `ORDER_LIMIT` if

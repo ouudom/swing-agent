@@ -1,6 +1,6 @@
 """
-Zone outcomes — shadow-trade resolver. Replays stored OHLC against every zone in
-data/zone_ledger.csv and writes would-be results to data/zone_outcomes.csv.
+Zone outcomes — shadow-trade resolver. Replays stored OHLC against every zone in the
+`zone_ledger` DB table and writes would-be results to the `zone_outcome` table.
 
 Answers, per published zone: did price reach it? would the trade have won? After
 ~20–30 resolved zones the summary shows whether Zone Confluence 8.0 actually beats
@@ -21,7 +21,8 @@ Shadow-trade model (simplifications, deliberately documented):
   - SL     = constitution formula at fill time, on closed bars only:
              H4_ATR14 if 0.5×D1_ATR14 < H4_ATR14 else avg(0.5×D1_ATR14, H4_ATR14);
              H4 bars filtered to range >= MIN_BAR_RANGE (per instrument config).
-  - Manage = TP1 +2.5R; SL −1R; BE: stop → entry after a bar's MFE reaches +1.5R
+  - Manage = TP +3.0R nearer zone / +4.0R further zone (v3 distance-tiered); SL −1R;
+             BE: stop → entry after a bar's MFE reaches +1.5R
              (armed from the NEXT bar). Same-bar SL+TP ambiguity → SL (conservative).
              Trade may run past the forecast week until exit or data end (RUNNING).
   - Status = PENDING (week live, no fill yet) | NO_TOUCH | TOUCH_NO_FILL |
@@ -51,6 +52,11 @@ from zone_ledger import load_ledger, save_ledger  # noqa: E402
 OUTCOMES_CSV = Path("data/zone_outcomes.csv")
 OUTCOMES_TABLE = "zone_outcome"
 TERMINAL = {"NO_TOUCH", "TOUCH_NO_FILL", "INVALIDATED", "WIN_TP1", "LOSS_SL", "BREAKEVEN"}
+
+# v3 distance-tiered TP (matches trade_outcome.py): within each (instrument, week) the zone
+# nearest the week's opening spot targets 3.0R, all others 4.0R. Replaces the flat TP1 2.5R.
+TP_R_NEAR = 3.0
+TP_R_FAR = 4.0
 
 # R1 (zone_confluence) buckets, shared with calibration.py. (label, lo_inclusive, hi_exclusive).
 R1_BUCKETS = [(">=8.0", 8.0, 99.0), ("7.0–7.9", 7.0, 8.0), ("<7.0", 0.0, 7.0)]
@@ -103,7 +109,7 @@ def min_bar_range(instrument: str) -> float:
 
 
 def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFrame,
-                 mbr: float) -> dict:
+                 mbr: float, tp_r: float = TP_R_NEAR) -> dict:
     out = {c: "" for c in OUT_COLS}
     out.update({k: z[k] for k in ["zone_id", "instrument", "week", "label", "direction",
                                   "zone_confluence", "conviction"]})
@@ -167,7 +173,7 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
     out["sl_dist"] = round(sl, 6)
 
     stop = entry_px - sign * sl
-    tp = entry_px + sign * 2.5 * sl
+    tp = entry_px + sign * tp_r * sl
     be_trigger = entry_px + sign * 1.5 * sl
     be_armed = False
     mfe = mae = 0.0
@@ -187,7 +193,7 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
             out["exit_time"] = str(bar["datetime"])
             break
         if hit_tp:
-            out["status"], out["r_result"] = "WIN_TP1", 2.5
+            out["status"], out["r_result"] = "WIN_TP1", tp_r
             out["exit_time"] = str(bar["datetime"])
             break
         if not be_armed and (hi >= be_trigger if sign > 0 else lo <= be_trigger):
@@ -239,13 +245,33 @@ def main():
         todo = todo[todo["instrument"] == args.instrument]
 
     rows, data_cache = [], {}
+
+    def _h1(inst):
+        if inst not in data_cache:
+            data_cache[inst] = (load_tf(inst, "1h"), load_tf(inst, "4h"),
+                                load_tf(inst, "1day"), min_bar_range(inst))
+        return data_cache[inst][0]
+
+    # v3 distance-tiered TP: nearest zone to the week's opening spot → 3.0R, others → 4.0R.
+    tp_r_map = {}
+    for (inst, week), grp in todo.groupby(["instrument", "week"]):
+        wstart, _ = week_window(week)
+        sb = _h1(inst)[_h1(inst)["datetime"] >= wstart]
+        spot = float(sb["close"].iloc[0]) if not sb.empty else None
+        dists = {z["zone_id"]: (abs((float(z["zone_top"]) + float(z["zone_bottom"])) / 2 - spot)
+                                if spot is not None else 0.0)
+                 for _, z in grp.iterrows()}
+        nearest = min(dists, key=dists.get)
+        for zid in dists:
+            tp_r_map[zid] = TP_R_NEAR if zid == nearest else TP_R_FAR
+
     for _, z in todo.iterrows():
         inst = z["instrument"]
         if inst not in data_cache:
             data_cache[inst] = (load_tf(inst, "1h"), load_tf(inst, "4h"),
                                 load_tf(inst, "1day"), min_bar_range(inst))
         h1, h4, d1, mbr = data_cache[inst]
-        out = resolve_zone(z, h1, h4, d1, mbr)
+        out = resolve_zone(z, h1, h4, d1, mbr, tp_r=tp_r_map.get(z["zone_id"], TP_R_NEAR))
         out["resolved_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         rows.append(out)
         ledger.loc[ledger["zone_id"] == z["zone_id"], "status"] = (
@@ -260,10 +286,10 @@ def main():
         old = old[~old["zone_id"].isin(res["zone_id"])]
         if not old.empty:
             res = pd.concat([old.astype(str), res.astype(str)], ignore_index=True)
-    # Canonical store = data/index.db (table `zone_outcome`); DB-only, no CSV mirror.
+    # Canonical store = data/database/index.db (table `zone_outcome`); DB-only, no CSV mirror.
     db.write_table(OUTCOMES_TABLE, res)
     save_ledger(ledger)
-    print(f"\n→ {OUTCOMES_CSV} ({len(res)} rows); ledger statuses updated")
+    print(f"\n→ {OUTCOMES_TABLE} table ({len(res)} rows); ledger statuses updated")
 
     summarize(res)
 

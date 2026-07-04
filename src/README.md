@@ -104,8 +104,8 @@ claude mcp add --transport http swing-agent http://127.0.0.1:8766/mcp \
 
 Both share one auth token and one Postgres backend. Set `MCP_AUTH_TOKEN` in `.env` before any
 LAN/tunnel exposure. Read/compute tools:
-`sql_query`, `get_brief`, `get_news`, `get_econ`, `get_calibration`, `compute_indicators`,
-`run_gate`, `run_replay`, `run_calibration`, `run_backtest`.
+`sql_query`, `get_brief`, `get_zone_context`, `get_news`, `get_econ`, `get_calibration`,
+`compute_indicators`, `run_gate`, `run_replay`, `run_calibration`, `run_backtest`.
 
 Structured write tools:
 `publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint`.
