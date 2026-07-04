@@ -53,5 +53,5 @@ Floor 5.0. E0 absent → no order (anchor rules in constitution).
 (ATR-scaled default — gbpjpy has the highest ATR in the book; its old static 0.05 buffer
 cancelled a running +1R W27 winner on a 20-pip breach, ~2-3% of its H4 ATR. Pass `--buffer`
 for the old static override, e.g. 0.05).
-`bash scripts/pyrun.sh scripts/gates/check_v1b.py --instrument gbpjpy --direction SHORT --zone-top 215.50 --zone-bottom 215.00`
+`bash scripts/pyrun.sh scripts/gates/check_intraday_invalidation.py --instrument gbpjpy --direction SHORT --zone-top 215.50 --zone-bottom 215.00`
 ⚠ Intervention days gap through V1b — BoJ/MoF/BoE hard block exists precisely for this.

@@ -4,7 +4,7 @@ Inherits the FX defaults from config._fx_base, then flips everything that assume
 quoted FOREIGN/USD:
 
   - USD_BETA_SIGN = +1 — long the pair IS long USD. USD strength (DXY up, US rates up) is
-    BULLISH the pair, not bearish. weekly_pull macro labels + backtest_signals USD-mechanical
+    BULLISH the pair, not bearish. fetch_data macro labels + backtest_signals USD-mechanical
     rows (DXY, M-rows) read this and flip direction.
   - COT_INVERTED = True — CME futures quote the FOREIGN currency (6C/6S/6J): spec net LONG the
     future = long CAD/CHF/JPY = SHORT the pair. Snapshot prints both readings.

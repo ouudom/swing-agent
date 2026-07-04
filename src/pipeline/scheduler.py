@@ -73,7 +73,7 @@ def main(argv: list[str]) -> int:
         "--once",
         choices=[
             "brief_refresh",
-            "weekly_pull",
+            "fetch_data",
             "zone_outcomes",
             "trade_outcome",
             "calibration",
@@ -87,7 +87,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.once:
-        if args.once in {"brief_refresh", "weekly_pull"} and not args.instrument:
+        if args.once in {"brief_refresh", "fetch_data"} and not args.instrument:
             parser.error(f"--instrument required for --once {args.once}")
         record = tasks.run_job(args.once, instrument=args.instrument, week=args.week, force=args.force)
         print(record)

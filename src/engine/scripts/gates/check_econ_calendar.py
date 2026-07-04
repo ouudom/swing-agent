@@ -1,7 +1,7 @@
 """
 Economic-calendar check — scheduled data-release gate for /weekly + /validate (#1/#2).
 
-Reads data/econ_calendar/calendar.csv (Forex Factory free JSON, fetched by weekly_pull.py)
+Reads data/econ_calendar/calendar.csv (Forex Factory free JSON, fetched by fetch_data.py)
 and reports HIGH-impact scheduled releases for an instrument's two currency legs inside the
 lookahead window, with no-trade windows. This is the data-release analogue of check_cb_calendar.py
 (which covers central-bank DECISIONS): together they remove the manual-web-search blind
@@ -10,7 +10,7 @@ spot that caused the W24 ECB miss.
   --retro <ISO-week> mode: prints last week's releases with actual vs estimate → SURPRISE
   (#2), consumed by the /weekly Step 2b retrospective.
 
-Country codes are ISO-2 (weekly_pull maps the Forex Factory currency field → ISO-2). The
+Country codes are ISO-2 (fetch_data maps the Forex Factory currency field → ISO-2). The
 pair→country map below may need a one-line tweak if the euro area shows as EU vs DE/FR —
 verify against data/econ_calendar/calendar.csv.
 
@@ -20,7 +20,7 @@ Usage:
     bash scripts/pyrun.sh scripts/gates/check_econ_calendar.py --retro 2026-W23 --instrument eurusd
 
 Exit codes: 0 = ran. 1 = calendar CSV missing or its coverage ends before the window end
-(stale → re-run weekly_pull.py to refetch before trusting "no events").
+(stale → re-run fetch_data.py to refetch before trusting "no events").
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def load_calendar() -> pd.DataFrame:
     if (df is None or df.empty) and ECON_CSV.exists():
         df = pd.read_csv(ECON_CSV, dtype=str).fillna("")
     if df is None or df.empty:
-        print(f"❌ No econ calendar in data/index.db or {ECON_CSV} — run weekly_pull.py (Forex "
+        print(f"❌ No econ calendar in data/index.db or {ECON_CSV} — run fetch_data.py (Forex "
               f"Factory free JSON, no key) before trusting the no-trade calendar. Web-search fallback applies.")
         sys.exit(1)
     df = df.fillna("")
@@ -135,11 +135,11 @@ def main() -> int:
         est = f" (est {str(r['estimate']).strip()})" if str(r["estimate"]).strip() else ""
         print(f"\n🔔 {r['date']} {r['time_utc'] or '??:??'} UTC ({when}) — "
               f"[{r['country']}] {r['event']}{est}")
-        print(f"   no-trade window: release ±30min (high-impact)")
+        print("   no-trade window: release ±30min (high-impact)")
 
     if coverage_end and str(end) > coverage_end:
         print(f"\n❌ Calendar coverage ends {coverage_end} but window extends to {end} — "
-              f"re-run weekly_pull.py to refetch before trusting a 'no events' result.")
+              f"re-run fetch_data.py to refetch before trusting a 'no events' result.")
         return 1
     return 0
 

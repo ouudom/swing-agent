@@ -63,7 +63,7 @@ continuation t=−3.83, Donchian breakdown −2.83, EMA/Aroon-regime anti-edge).
 | | **Total** | **10.0** | | |
 
 **Invalidation:** D1 CLOSE beyond zone against the fade = dead. V1b: 2 consecutive H4 closes
->0.25×H4 ATR14 past zone (ATR-scaled default, `scripts/gates/check_v1b.py`; pass `--buffer` for a static override).
+>0.25×H4 ATR14 past zone (ATR-scaled default, `scripts/gates/check_intraday_invalidation.py`; pass `--buffer` for a static override).
 
 **Session notes:** London open 07–09 UTC = H1 LONG drift (t=2.92) — best window for long-side
 fades into support. CAD data + oil action land NY session; never hold a fresh limit through

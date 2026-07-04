@@ -66,7 +66,7 @@ Aroon / PSAR / EMA-regime continuation (t −2 to −4.4), ADX+EMA trend-follow.
 
 **Invalidation:** D1 CLOSE beyond the zone in the fade-against direction = zone dead
 (mean-reversion became breakout). V1b: 2 consecutive H4 closes >0.25×H4 ATR14 past zone
-(ATR-scaled default, `scripts/gates/check_v1b.py`; pass `--buffer` for a static override).
+(ATR-scaled default, `scripts/gates/check_intraday_invalidation.py`; pass `--buffer` for a static override).
 
 **Session note:** London open 07–09 UTC has an H1 SHORT drift (t=2.67) — best window for
 short-side fades; be slower to chase longs there.

@@ -1,5 +1,5 @@
 """
-V1b — Intraday H4 invalidation checker (markdown-only, no DB).
+Intraday H4 invalidation checker — constitution rule V1b (markdown-only, no DB).
 
 Checks the last 2 H4 closes in data/twelvedata/{instrument}/4h.csv against a
 trading-zone extreme. Flags 2 consecutive H4 closes >BUFFER past the zone =
@@ -14,9 +14,9 @@ Zone is passed on the CLI by /validate (read from _HOT.md active zones).
 Run at each H4 boundary (00/04/08/12/16/20 UTC) — manually or via cron.
 
 Usage:
-    bash scripts/pyrun.sh scripts/gates/check_v1b.py --direction SHORT --zone-top 3400 --zone-bottom 3380
-    bash scripts/pyrun.sh scripts/gates/check_v1b.py --direction LONG  --zone-top 3300 --zone-bottom 3280 --buffer 5
-    bash scripts/pyrun.sh scripts/gates/check_v1b.py --direction SHORT --zone-top 215.6 --zone-bottom 215.0 --atr-mult 0.25
+    bash scripts/pyrun.sh scripts/gates/check_intraday_invalidation.py --direction SHORT --zone-top 3400 --zone-bottom 3380
+    bash scripts/pyrun.sh scripts/gates/check_intraday_invalidation.py --direction LONG  --zone-top 3300 --zone-bottom 3280 --buffer 5
+    bash scripts/pyrun.sh scripts/gates/check_intraday_invalidation.py --direction SHORT --zone-top 215.6 --zone-bottom 215.0 --atr-mult 0.25
 
 Exit codes: 0 intact / 2 breach.
 """

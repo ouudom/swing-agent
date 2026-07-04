@@ -99,7 +99,7 @@ any hard block fails
 | | Block | Fail action |
 |---|---|---|
 | V1 | D1 close beyond zone | INVALIDATED — remove zone from runtime state |
-| V1b | 2 consecutive H4 closes >0.25×H4 ATR14 past zone extreme (ATR-scaled default; `--buffer` overrides static) | INVALIDATED — cancel limit (`scripts/gates/check_v1b.py`) |
+| V1b | 2 consecutive H4 closes >0.25×H4 ATR14 past zone extreme (ATR-scaled default; `--buffer` overrides static) | INVALIDATED — cancel limit (`scripts/gates/check_intraday_invalidation.py`) |
 | V3 | NFP/FOMC/CPI/US Retail Sales within 2h of London (08:00) or NY (13:00) open | NO TRADE — cancel live limit |
 | VETO | VIX > 35 | all SHORT zones NO TRADE |
 
@@ -144,7 +144,7 @@ TP must land at a structural anchor (prior swing / weekly pivot / Fib extension)
 
 ## Regime note — ADX(14) D1
 
-Emitted by `weekly_pull.py` as `adx_val`. Informational in v2 (floor fixed at 5.0). Logged as
+Emitted by `fetch_data.py` as `adx_val`. Informational in v2 (floor fixed at 5.0). Logged as
 context: >25 trending (favor continuation) | 20–25 transitional (chop risk) | <20 ranging
 (reversal/counter at edges more viable). Operator may tighten manually; not an automatic floor modifier.
 

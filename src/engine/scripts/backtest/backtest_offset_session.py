@@ -46,8 +46,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "scripts" / "replay"))  # zone_outcomes.load_tf
 
 from backtest_signals import (  # noqa: E402
-    atr, rsi, stoch_k, williams_r, keltner,
-    pin_bull, pin_bear, bull_engulf, bear_engulf, REGISTERED,
+    atr, rsi, stoch_k, williams_r, keltner, REGISTERED,
 )
 from zone_outcomes import load_tf  # noqa: E402  (DB loader — CSVs are gone)
 

@@ -22,7 +22,7 @@ Forward windows (match gold Phase 0b): D1 fwd=5 (1wk), H4 fwd=6 (24h), H1 fwd=4 
 Macro signals are D1-only (FRED is daily).
 """
 
-import os, sys, argparse, importlib
+import sys, argparse, importlib
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -32,17 +32,17 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT))
 
 REGISTERED = {
-    "xauusd": "config.xauusd.config",
-    "eurusd": "config.eurusd.config",
-    "gbpusd": "config.gbpusd.config",
-    "eurgbp": "config.eurgbp.config",
-    "audusd": "config.audusd.config",
-    "nzdusd": "config.nzdusd.config",
-    "usdcad": "config.usdcad.config",
-    "usdchf": "config.usdchf.config",
-    "usdjpy": "config.usdjpy.config",
-    "eurjpy": "config.eurjpy.config",
-    "gbpjpy": "config.gbpjpy.config",
+    "xauusd": "config.xauusd",
+    "eurusd": "config.eurusd",
+    "gbpusd": "config.gbpusd",
+    "eurgbp": "config.eurgbp",
+    "audusd": "config.audusd",
+    "nzdusd": "config.nzdusd",
+    "usdcad": "config.usdcad",
+    "usdchf": "config.usdchf",
+    "usdjpy": "config.usdjpy",
+    "eurjpy": "config.eurjpy",
+    "gbpjpy": "config.gbpjpy",
 }
 FWD = {"D1": 5, "H4": 6, "H1": 4}
 TF_FILE = {"D1": "1day.csv", "H4": "4h.csv", "H1": "1h.csv"}

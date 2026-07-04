@@ -5,7 +5,7 @@ Default backend remains SQLite (`data/database/index.db`). Set `SWING_DB_BACKEND
 to use Postgres with the same public helpers. Reads still return CSV-shaped all-string
 frames; writes accept the existing all-string frames and let Postgres cast typed columns.
 
-Used by: zone_ledger.py, zone_outcomes.py, trade_outcome.py, weekly_pull.py,
+Used by: zone_ledger.py, zone_outcomes.py, trade_outcome.py, fetch_data.py,
 ohlc_store.py. Tables are written live by those scripts — there is no CSV import step.
 """
 from __future__ import annotations

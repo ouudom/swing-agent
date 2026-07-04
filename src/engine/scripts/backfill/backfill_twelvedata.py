@@ -59,7 +59,6 @@ def fetch_page(symbol: str, interval: str, start: str, end: str) -> pd.DataFrame
 
 
 def backfill(symbol: str, tf: str, since: str, forward_only: bool, max_calls: int):
-    sym_clean = symbol.replace("/", "").lower()
     cur_last = _last_dt(SOURCE, symbol, tf)   # MAX(datetime) from the DB ohlc table
     now = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None))
     since_ts = pd.Timestamp(since)
@@ -90,13 +89,8 @@ def backfill(symbol: str, tf: str, since: str, forward_only: bool, max_calls: in
         return
 
     # ── BACKWARD WALK: from now back to since ─────────────────────────────────
-    # If partial backfill exists, resume from earliest_dt
-    if mf.get("first_dt"):
-        end = pd.Timestamp(mf["first_dt"]) + pd.Timedelta(seconds=1)
-        print(f"[{tf}] resuming backward from manifest first_dt={mf['first_dt']}")
-    else:
-        end = now
-        print(f"[{tf}] fresh backfill backward from {end} → {since_ts}")
+    end = now
+    print(f"[{tf}] fresh backfill backward from {end} → {since_ts}")
 
     bpd  = BARS_PER_DAY.get(tf, 24)
     chunk_days = max(3, int(PAGE / bpd)) if bpd > 0 else 365

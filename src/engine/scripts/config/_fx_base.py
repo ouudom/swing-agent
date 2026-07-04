@@ -4,7 +4,7 @@ Per-pair modules `from config._fx_base import *` then override the pair-specific
 fields (SYMBOL, SYM_CLEAN, DISPLAY_NAME, TD_DIR, PULL_DIR, VP_TICKER, RATE_FOREIGN*,
 COT_CONTRACT_NAME). Everything common to FX majors lives here.
 
-Contrast with gold (config/xauusd/config.py): gold is a single-driver real-yield
+Contrast with gold (config/xauusd.py): gold is a single-driver real-yield
 instrument; FX majors are a two-country rate story (MACRO_MODE="rate_diff").
 """
 
@@ -31,7 +31,7 @@ ETF_HOLDINGS_CSV  = None
 
 # ── TICK_MULTIPLIER: legacy price-scale constant (standard FX lot = 100,000 units).
 #    No longer used for lot sizing (system is R-multiple only) — retained as a heuristic
-#    input to PRICE_DP (display decimal precision) in weekly_pull.load_instrument(). ──
+#    input to PRICE_DP (display decimal precision) in fetch_data.load_instrument(). ──
 TICK_MULTIPLIER   = 100000
 
 # ── H4 trading-day ATR filter: FX bars move in pips, not $. Drop flatline bars below this range. ──

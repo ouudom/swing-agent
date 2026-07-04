@@ -47,7 +47,7 @@ V1B_BUFFER = 0.05
 
 # ── Macro: one-leg cross — GBP (SONIA) only; JPY has NO daily FRED series ──
 # MACRO_MODE="cross_rate_diff" with RATE_GBP=None → one-leg branch. RATE_EUR slot
-# carries the LIVE leg series (SONIA here — slot name is historical, see weekly_pull).
+# carries the LIVE leg series (SONIA here — slot name is historical, see fetch_data).
 MACRO_MODE        = "cross_rate_diff"
 RATE_EUR          = "IUDSOIA"   # live leg = GBP SONIA (slot name legacy from eurgbp)
 RATE_GBP          = None        # ← no second daily leg (BoJ has no daily FRED series)

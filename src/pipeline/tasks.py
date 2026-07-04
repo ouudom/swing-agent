@@ -60,10 +60,10 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
             if not instrument:
                 raise ValueError("brief_refresh requires instrument")
             result = commands.brief_refresh(instrument)
-        elif job_name == "weekly_pull":
+        elif job_name == "fetch_data":
             if not instrument:
-                raise ValueError("weekly_pull requires instrument")
-            result = commands.weekly_pull(instrument, force=bool(kwargs.get("force", False)))
+                raise ValueError("fetch_data requires instrument")
+            result = commands.fetch_data(instrument, force=bool(kwargs.get("force", False)))
         elif job_name == "zone_outcomes":
             result = commands.zone_outcomes(kwargs.get("week"), instrument)
         elif job_name == "trade_outcome":

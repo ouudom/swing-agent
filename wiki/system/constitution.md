@@ -22,7 +22,7 @@ momentum bias). They generalize via each instrument's profile — never hardcode
 | Generic rule term | XAUUSD | EURUSD / GBPUSD | EURGBP (cross) | AUDUSD / NZDUSD | USDCAD / USDCHF (USD-base) | USDJPY (USD-base, JPY-quoted) | EURJPY (cross, JPY-quoted) | GBPJPY (cross, JPY-quoted) | Source |
 |---|---|---|---|---|---|---|---|---|---|
 | H4-ATR flatline filter | $1 | 0.0003 (3 pips) | 0.0002 (2 pips) | 0.0003 (3 pips) | 0.0003 (3 pips) | 0.03 (3 JPY pips; pip=0.01, 3dp) | 0.03 (pip=0.01, 3dp) | 0.05 (pip=0.01, 3dp — highest ATR) | `MIN_BAR_RANGE` |
-| V1b "past zone" buffer | 0.25 × H4 ATR14 (ATR-scaled default across all pairs; `check_v1b.py --buffer` static override) | ← | ← | ← | ← | ← | ← | ← | check_v1b.py |
+| V1b "past zone" buffer | 0.25 × H4 ATR14 (ATR-scaled default across all pairs; `check_intraday_invalidation.py --buffer` static override) | ← | ← | ← | ← | ← | ← | ← | check_intraday_invalidation.py |
 | Macro baseline (frontmatter) | `baseline_dfii10` | `baseline_dgs2` (+ `baseline_policy_diff`) | `baseline_rate_diff` (weak) | `baseline_dgs2` (NZD: context only) | `baseline_dgs2` (**polarity FLIPPED**) | `baseline_dgs2` (**DEAD** — context only) | `baseline_ecb_rate` (context only) | `baseline_sonia_rate` (context only) | snapshot |
 | Macro direction model | real-yield (momentum) | DXY-jump→short + US2Y-slope + VIX-spike→short; carry-diff/2s10s DEAD | **thin/DEAD — price-only; macro = 0.5 tilt** | **VIX LEVEL (inverted)** + US2Y-slope (AUD only — dead for NZD); DXY-jump DEAD both | CAD: **VIX LEVEL fade-USD (VIX>20→short)** + US2Y-flipped + 🛢 oil tilt; DXY DEAD. CHF: **DXY 20d SLOPE** (only live DXY pair beyond EUR/GBP); VIX WASHOUT | **DXY 20d SLOPE** (live, like CHF); VIX WASHOUT; US2Y DEAD (carry = baseline drift) | **NONE — first 100% price-driven pair** (ECB leg anti, VIX dead, no USD leg) | **NONE — second 100% price-driven pair** (SONIA leg ns, VIX dead, no USD leg) | profile / D021 / EG2 / D024 |
 | VIX veto direction | block SHORTs (safe-haven) | block **LONGs** (risk-off USD bid) | **NONE** (risk-off → EURGBP UP, inverted) | **NONE** (VIX level scores, inverted) | **NONE** (CAD: level scores — high VIX favors SHORTs. CHF: washout — no gate, no score) | **NONE** (washout — no gate, no score) | **NONE** (dead, t=0.91) | **NONE** (dead, t=0.89) | profile / EG2 / D024 |
@@ -85,7 +85,7 @@ Daily workflow (07:30 UTC, before London open):
   1. /validate [date]
   2. Hard blocks (any fail = stop):
        V1  D1 close beyond zone           → INVALIDATED
-       V1b 2 consecutive H4 closes > [V1b buffer] past zone → INVALIDATED (scripts/gates/check_v1b.py)
+       V1b 2 consecutive H4 closes > [V1b buffer] past zone → INVALIDATED (scripts/gates/check_intraday_invalidation.py)
            buffer = 0.25 × H4 ATR14 (ATR-scaled default; `--buffer` for a static override) —
            a static pip buffer whipsaws high-ATR weeks (gbpjpy W27 cancelled a running +1R winner)
        V3  event WINDOW (±30min / within 2h of open) → NO TRADE
@@ -197,7 +197,7 @@ uncontrolled risk, whereas an already-open position is already bounded by its st
 ## Invalidation
 - **V1** — any D1 close beyond zone extreme → cancel.
 - **V1b** — 2 consecutive H4 closes past zone extreme by > [V1b buffer] → cancel live limit,
-  remove from `runtime state`. Buffer = 0.25 × H4 ATR14 (ATR-scaled default; `check_v1b.py --buffer` for a
+  remove from `runtime state`. Buffer = 0.25 × H4 ATR14 (ATR-scaled default; `check_intraday_invalidation.py --buffer` for a
   static override). Check at each H4 boundary (00/04/08/12/16/20 UTC).
 - Macro bias reverses (XAUUSD: real yields spike against direction; FX: DXY 1d jump or US2Y
   slope flips against direction) or weekly structure breaks.

@@ -36,7 +36,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from backtest_signals import (  # noqa: E402
     rsi, atr, adx, stoch_k, williams_r, cci, keltner, bollinger, rolling_slope,
-    pin_bull, pin_bear, bull_engulf, bear_engulf,
     load_fred, load_dxy, align_daily,
 )
 from config.ec_spec import EC_SPEC, DEFAULT_SPEC  # noqa: E402

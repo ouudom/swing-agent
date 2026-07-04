@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import db  # noqa: E402
 import entry_confluence as ec  # noqa: E402
-from zone_ledger import load_ledger, save_ledger  # noqa: E402
+from zone_ledger import load_ledger  # noqa: E402
 from zone_outcomes import (  # noqa: E402  (reuse — do not duplicate)
     week_window, atr14_before, load_tf, min_bar_range,
 )
@@ -101,7 +101,7 @@ _PAIR_CCY = {
     "usdcad": ["USD", "CAD"], "usdchf": ["USD", "CHF"], "usdjpy": ["USD", "JPY"],
     "eurjpy": ["EUR", "JPY"], "gbpjpy": ["GBP", "JPY"],
 }
-# V1b buffer beyond the zone edge: ATR-scaled (0.25 x H4 ATR14), matching check_v1b.py —
+# V1b buffer beyond the zone edge: ATR-scaled (0.25 x H4 ATR14), matching check_intraday_invalidation.py —
 # a static pip buffer whipsaws high-ATR pairs (gbpjpy's old static 0.05 cancelled a
 # running +1R W27 winner on a 20-pip H4 breach, ~2-3% of its H4 ATR).
 _V1B_ATR_MULT = 0.25
@@ -299,7 +299,6 @@ def _gates(inst, is_long, t, top, bot, ec_score, h4, d1, structure_intact, v1b) 
     """Hard gates as non-suppressing flags. V1/V3/VETO/EC at the fill bar; V1b is the
     week-scanned intra-trade invalidation (passed in)."""
     t = pd.Timestamp(t)
-    sign = 1 if is_long else -1
     flags = []
 
     # V1 — D1 close beyond zone during the live week

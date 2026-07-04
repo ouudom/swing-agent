@@ -50,5 +50,5 @@ Floor 5.0. E0 absent → no order (anchor rules in constitution).
 2 consecutive H4 closes **>0.25×H4 ATR14** past zone extreme → invalidate, cancel limit
 (ATR-scaled default — a static pip buffer whipsaws on high-ATR weeks; pass `--buffer` for
 the old static override, e.g. 0.04).
-`bash scripts/pyrun.sh scripts/gates/check_v1b.py --instrument eurjpy --direction LONG --zone-top 184.50 --zone-bottom 184.00`
+`bash scripts/pyrun.sh scripts/gates/check_intraday_invalidation.py --instrument eurjpy --direction LONG --zone-top 184.50 --zone-bottom 184.00`
 ⚠ Intervention days gap through V1b — BoJ/MoF hard block exists precisely for this.

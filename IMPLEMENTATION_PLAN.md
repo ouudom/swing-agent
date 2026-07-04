@@ -37,13 +37,13 @@ run as code; only judgment needs an LLM.**
 
 | Layer | Current scripts | Target | Notes |
 |---|---|---|---|
-| **Data ingest** | `fetch.py`, `weekly_pull.py` (orchestrator), `lib/ohlc_store.py`, `db.py` | **App service** | Cron-driven. Swap SQLite→Postgres at the `db.py` layer only. |
+| **Data ingest** | `fetch.py`, `fetch_data.py` (orchestrator), `lib/ohlc_store.py`, `db.py` | **App service** | Cron-driven. Swap SQLite→Postgres at the `db.py` layer only. |
 | **Indicators / structure** | `compute.py`, `structure.py` | **App service** | Pure math on OHLC. No network, no judgment. |
-| **Gates (hard, deterministic)** | `check_cb_calendar.py`, `check_econ_calendar.py`, `check_intervention_watch.py`, `check_v1b.py`, `check_structured_news_event.py` | **App service** | Rules in → bool out. Run *before* the AI leg; AI can never override a hard block. |
+| **Gates (hard, deterministic)** | `check_cb_calendar.py`, `check_econ_calendar.py`, `check_intervention_watch.py`, `check_intraday_invalidation.py`, `check_structured_news_event.py` | **App service** | Rules in → bool out. Run *before* the AI leg; AI can never override a hard block. |
 | **EC scorer (deterministic approx)** | `entry_confluence.py` + `config/ec_spec.py` | **App service** | Fidelity-gated: it approximates each pair's R2 prose. Runs standalone. |
 | **Replay / evaluation** | `zone_ledger.py`, `zone_outcomes.py`, `trade_outcome.py`, `calibration.py` | **App service (nightly batch)** | Reads OHLC + ledger, writes outcome tables + `calibration.md`. |
 | **Exposure / netting** | `fx_exposure.py` | **App service** | Advisory ledger. |
-| **News feed** | `check_news.py` (+ RSS pull in `weekly_pull.fetch_news`) | **App service** | Key-free RSS. |
+| **News feed** | `check_news.py` (+ RSS pull in `fetch_data.fetch_news`) | **App service** | Key-free RSS. |
 | **JUDGMENT — stays LLM** | `/weekly` 5-section analysis · zone selection + R1 scoring · `/validate` bias-flip / re-forecast / narrative · macro synthesis (`yield_environment.md`) · Step 2b retrospective | **Claude Code routine** | Reads rules from the git repo (native), pulls numbers from MCP `get_brief`/`sql_query`, writes forecast/validation md to the repo (native + `git commit`), pushes the structured zone/verdict to the DB via MCP. |
 
 **Rule of thumb:** if the output is a number or a bool, it is code. If the output is a *decision
@@ -249,7 +249,7 @@ prevents the hourly re-run from whipsawing a resting limit.
 
 **Rate limit (critical):** TwelveData free tier = **8 credits/minute**. 11 pairs × ~1 credit each
 blows the cap in one unpaced loop (this exact bug caused the OHLC freshness stagger — already fixed
-with 9 s pacing in `fetch.py` / `weekly_pull.py`). In the app: either keep the ≥9 s inter-instrument
+with 9 s pacing in `fetch.py` / `fetch_data.py`). In the app: either keep the ≥9 s inter-instrument
 pacing, or move to a paid tier and parallelize. A 15-min poll of 11 pairs at 9 s spacing = ~100 s,
 comfortably inside the window.
 
@@ -406,7 +406,7 @@ reconcile can flag any `zone_ledger` row with no matching weekly/validation outp
 - Export latest SQLite backup into Postgres.
 - Compare table row counts, min/max datetimes, and sample hashes by table.
 - Run representative scripts against both backends and diff outputs:
-  `weekly_pull.py`, `zone_ledger.py list`, `zone_outcomes.py`, `trade_outcome.py`,
+  `fetch_data.py`, `zone_ledger.py list`, `zone_outcomes.py`, `trade_outcome.py`,
   `calibration.py`, `fx_exposure.py`.
 - Live Docker validation:
   - `docker compose up -d --build` passes; Postgres healthy, pipeline running.
@@ -588,7 +588,7 @@ manual/laptop `/validate`.
 `ec_spec.py`, all `check_*.py` gates, `zone_outcomes.py`, `trade_outcome.py`, `calibration.py`,
 `fx_exposure.py`, the bad-tick quarantine.
 
-**Needs rework:** `db.py` (SQLite→Postgres — the one real refactor), `fetch.py` /`weekly_pull.py`
+**Needs rework:** `db.py` (SQLite→Postgres — the one real refactor), `fetch.py` /`fetch_data.py`
 (wrap in the scheduler; pacing already added). The `/weekly` + `/validate` skills **stay Claude Code
 skills** — they read rules and write forecasts as **native repo files** (unchanged), and swap only
 their *data* calls (running local scripts) for MCP tools (`get_brief`, `sql_query`, `run_gate`,

@@ -66,8 +66,8 @@ def pyrun(args: list[str], timeout_s: int | None = None) -> CommandResult:
     return run([sys.executable, *args], timeout_s=timeout_s)
 
 
-def weekly_pull(instrument: str, force: bool = False) -> CommandResult:
-    args = [engine_script("pipeline/weekly_pull.py"), "--instrument", instrument]
+def fetch_data(instrument: str, force: bool = False) -> CommandResult:
+    args = [engine_script("pipeline/fetch_data.py"), "--instrument", instrument]
     if force:
         args.append("--force")
     return pyrun(args, timeout_s=900)
@@ -96,7 +96,7 @@ def calibration() -> CommandResult:
 
 
 def brief_refresh(instrument: str) -> CommandResult:
-    return weekly_pull(instrument, force=False)
+    return fetch_data(instrument, force=False)
 
 
 def reconcile(strict: bool = False) -> CommandResult:

@@ -10,7 +10,6 @@ confirming bars to the right, so the most recent pivot lags ~2 bars — intended
 is only real once price turns away from it).
 """
 import numpy as np
-import pandas as pd
 
 PIVOT_N = 2          # fractal half-width
 STRUCT_LOOKBACK = 30  # H4 bars (~5 trading days) for structural_dist search
@@ -139,7 +138,7 @@ def time_at_price(df, bins=50, window=480):
                 counts[b] += 1
     htn_i = int(np.argmax(counts))
     mid = lambda i: (edges[i] + edges[i + 1]) / 2
-    total, target = counts.sum(), counts.sum() * 0.70
+    target = counts.sum() * 0.70
     lo_i = hi_i = htn_i; acc = counts[htn_i]
     while acc < target and (lo_i > 0 or hi_i < bins - 1):
         add_lo = counts[lo_i - 1] if lo_i > 0 else -1

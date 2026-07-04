@@ -8,7 +8,7 @@
 #   - Linux sandbox (scheduled runs): falls back to system python3 + .pydeps,
 #     a persistent target-dir install of the deps missing from the base image (yfinance, ...).
 #
-# Usage:  bash src/engine/scripts/pyrun.sh src/engine/scripts/pipeline/weekly_pull.py --instrument xauusd
+# Usage:  bash src/engine/scripts/pyrun.sh src/engine/scripts/pipeline/fetch_data.py --instrument xauusd
 #
 # Layout note: this launcher lives at swing-agent/src/engine/scripts/pyrun.sh, so ROOT is
 # resolved three levels up (scripts -> engine -> src -> swing-agent). requirements.txt lives

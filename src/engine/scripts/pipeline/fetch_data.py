@@ -2,14 +2,14 @@
 Multi-instrument data pipeline — orchestrator (fetch + compute + snapshot write).
 
 Usage:
-    bash scripts/pyrun.sh scripts/pipeline/weekly_pull.py                        # xauusd, honors cache
-    bash scripts/pyrun.sh scripts/pipeline/weekly_pull.py --force                # xauusd, re-fetch full
-    bash scripts/pyrun.sh scripts/pipeline/weekly_pull.py --instrument xauusd    # explicit instrument
+    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py                        # xauusd, honors cache
+    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py --force                # xauusd, re-fetch full
+    bash scripts/pyrun.sh scripts/pipeline/fetch_data.py --instrument xauusd    # explicit instrument
 
 Split entry points (preferred for granular control):
     scripts/fetch.py    — network IO only (TD 15M + FRED)            → CSVs
     scripts/compute.py  — indicators + snapshot, no TD/FRED network  → pull file
-    scripts/pipeline/weekly_pull.py — this file: cache gate → fetch → compute (back-compat)
+    scripts/pipeline/fetch_data.py — this file: cache gate → fetch → compute (back-compat)
 
 Pipeline:
     TD 15M fetch (1 API call) → append 15min.csv → resample → 1h/4h/1day.csv
@@ -24,28 +24,27 @@ Cache policy: refetch unless (a) snapshot <15min old OR (b) market closed
 Requirements: pip install requests pandas numpy yfinance python-dotenv
 """
 
-import os, sys, json, argparse, time, importlib
+import os, sys, argparse, time, importlib
 import requests, pandas as pd, numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from io import StringIO
 from dotenv import load_dotenv
 
 # ── INSTRUMENT REGISTRY ───────────────────────────────────────────────────────
 
 REGISTERED_INSTRUMENTS = {
-    "xauusd": "config.xauusd.config",
-    "eurusd": "config.eurusd.config",
-    "gbpusd": "config.gbpusd.config",
-    "eurgbp": "config.eurgbp.config",   # cross — EG1 (data); macro placeholder, see D022
-    "audusd": "config.audusd.config",   # D024 pair #1 — USD-quote major, no daily RBA series
-    "nzdusd": "config.nzdusd.config",   # D024 pair #2 — USD-quote major, no daily RBNZ series
-    "usdcad": "config.usdcad.config",   # D024 pair #3 — USD-BASE (inverted), oil leg, COT inverted
-    "usdchf": "config.usdchf.config",   # D024 pair #4 — USD-BASE, safe-haven CHF, SNB regime, COT inverted
-    "usdjpy": "config.usdjpy.config",   # D024 pair #5 — USD-BASE, first JPY pair (pip 0.01, TICK 650, 3dp)
-    "eurjpy": "config.eurjpy.config",   # D024 pair #6 — first cross-JPY (USD_BETA_SIGN=0, JPY pip, one-leg macro)
-    "gbpjpy": "config.gbpjpy.config",   # D024 pair #7 — cross-JPY #2 (one-leg macro = SONIA, COT off, high ATR)
+    "xauusd": "config.xauusd",
+    "eurusd": "config.eurusd",
+    "gbpusd": "config.gbpusd",
+    "eurgbp": "config.eurgbp",   # cross — EG1 (data); macro placeholder, see D022
+    "audusd": "config.audusd",   # D024 pair #1 — USD-quote major, no daily RBA series
+    "nzdusd": "config.nzdusd",   # D024 pair #2 — USD-quote major, no daily RBNZ series
+    "usdcad": "config.usdcad",   # D024 pair #3 — USD-BASE (inverted), oil leg, COT inverted
+    "usdchf": "config.usdchf",   # D024 pair #4 — USD-BASE, safe-haven CHF, SNB regime, COT inverted
+    "usdjpy": "config.usdjpy",   # D024 pair #5 — USD-BASE, first JPY pair (pip 0.01, TICK 650, 3dp)
+    "eurjpy": "config.eurjpy",   # D024 pair #6 — first cross-JPY (USD_BETA_SIGN=0, JPY pip, one-leg macro)
+    "gbpjpy": "config.gbpjpy",   # D024 pair #7 — cross-JPY #2 (one-leg macro = SONIA, COT off, high ATR)
 }
 
 _instrument_cfg = None  # set by load_instrument()
@@ -627,7 +626,7 @@ def fetch_cot():
     Caches deahistfo{YEAR}.zip (combined Futures-Only, all markets) in data/cftc/.
     Returns latest two weekly reports for the instrument's COT contract.
     """
-    import zipfile, io
+    import zipfile
     contract = (_instrument_cfg.COT_CONTRACT_NAME if _instrument_cfg
                 else "GOLD - COMMODITY EXCHANGE INC.")
     try:
@@ -1027,11 +1026,11 @@ def cache_check(force=False):
         size  = out_path.stat().st_size
         if age_s < CACHE_FRESH_SECONDS:
             print(f"✅ Cache hit: {out_path} ({size} bytes, generated {mtime}, age {int(age_s)}s < {CACHE_FRESH_SECONDS}s)")
-            print(f"   Skipping fetch (fresh). Use --force to refetch.")
+            print("   Skipping fetch (fresh). Use --force to refetch.")
             return out_path, True
         if is_market_closed_utc():
             print(f"✅ Cache hit: {out_path} ({size} bytes, generated {mtime}, age {int(age_s/60)}min)")
-            print(f"   Skipping fetch (market closed — weekend). Use --force to refetch.")
+            print("   Skipping fetch (market closed — weekend). Use --force to refetch.")
             return out_path, True
         print(f"⚠️  Cache stale ({int(age_s/60)}min old, market open) — refetching.")
     return out_path, False

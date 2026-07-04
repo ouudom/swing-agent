@@ -49,7 +49,7 @@ GATE_ALLOWLIST = {
     "cb_calendar": ["src/engine/scripts/gates/check_cb_calendar.py"],
     "intervention_watch": ["src/engine/scripts/gates/check_intervention_watch.py"],
     "structured_news_event": ["src/engine/scripts/gates/check_structured_news_event.py"],
-    "v1b": ["src/engine/scripts/gates/check_v1b.py"],
+    "v1b": ["src/engine/scripts/gates/check_intraday_invalidation.py"],
 }
 
 

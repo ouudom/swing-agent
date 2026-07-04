@@ -17,7 +17,7 @@ NOT the FX fade template — H1 overbought fade is an anti-edge (t=−3.3). Evid
 | Field | Value | Note |
 |---|---|---|
 | PIP_SIZE | **0.01** | big figure = 1.00 = 100 pips; price 3dp |
-| PRICE_DP | **3** | overrides weekly_pull TICK heuristic |
+| PRICE_DP | **3** | overrides fetch_data TICK heuristic |
 | TICK_MULTIPLIER | **650** | STATIC ≈100000/154 (D024 no-convert); drifts ±10% over 140–170 |
 | V1B_BUFFER | 0.04 | 4 JPY pips ≈ 10% median H4 ATR |
 | MIN_BAR_RANGE | 0.03 | vestigial (session filter time-based) |

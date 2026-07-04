@@ -203,10 +203,22 @@
   "RBNZ": {
    "name": "Reserve Bank of New Zealand (OCR)",
    "time_note": "decision 14:00 NZT (02:00 UTC winter / 01:00 summer)",
-   "verified_through": "2026-07-08",
+   "verified_through": "2026-12-31",
    "dates": [
     {
      "date": "2026-07-08",
+     "status": "confirmed"
+    },
+    {
+     "date": "2026-09-02",
+     "status": "confirmed"
+    },
+    {
+     "date": "2026-10-28",
+     "status": "confirmed"
+    },
+    {
+     "date": "2026-12-09",
      "status": "confirmed"
     }
    ],

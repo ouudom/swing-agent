@@ -74,7 +74,7 @@ IS the cross axis (see [[currency_exposure]]).
 
 **Invalidation:** D1 CLOSE beyond the zone in the fade-against direction = dead (became a
 breakout/trend). V1b = 2 consecutive H4 closes >0.25×H4 ATR14 past zone (ATR-scaled default,
-`scripts/gates/check_v1b.py`; pass `--buffer` for a static override).
+`scripts/gates/check_intraday_invalidation.py`; pass `--buffer` for a static override).
 
 **Output per zone:** ✅ ORDER LIMIT | ❌ NO TRADE / INVALIDATED.
 

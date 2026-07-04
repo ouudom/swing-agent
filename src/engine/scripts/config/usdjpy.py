@@ -7,7 +7,7 @@ D024 pair #5 — third USD-base pair and FIRST JPY-quoted pair. Long USDJPY = lo
     lot sizing, system is R-multiple only): ≈ 100,000/USDJPY ≈ 100,000/154. The non-JPY
     value (TICK=100000) would be wrong by ~155× here, not a tolerable drift. Retained only
     as a PRICE_DP display-precision heuristic.
-  - PRICE_DP = 3 — weekly_pull display/rounding (TICK heuristic would give 5dp).
+  - PRICE_DP = 3 — fetch_data display/rounding (TICK heuristic would give 5dp).
 
 JPY specifics:
   - No daily FRED series for the BoJ policy rate → RATE_FOREIGN=None.

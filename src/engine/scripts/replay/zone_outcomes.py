@@ -98,7 +98,7 @@ def load_tf(instrument: str, tf: str) -> pd.DataFrame:
 
 
 def min_bar_range(instrument: str) -> float:
-    cfg = importlib.import_module(f"config.{instrument}.config")
+    cfg = importlib.import_module(f"config.{instrument}")
     return float(getattr(cfg, "MIN_BAR_RANGE", 0.0))
 
 
