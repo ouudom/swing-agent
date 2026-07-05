@@ -83,6 +83,14 @@ DDL = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_trade_log_instrument_status ON trade_log (instrument, status)",
+    """
+    CREATE TABLE IF NOT EXISTS trigger_state (
+      instrument text PRIMARY KEY,
+      last_fired_h1 timestamptz,
+      last_fire_reason text,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
 ]
 
 

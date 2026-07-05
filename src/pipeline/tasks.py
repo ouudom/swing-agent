@@ -72,6 +72,8 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
             result = commands.calibration()
         elif job_name == "check_live_trades":
             result = commands.check_live_trades(instrument)
+        elif job_name == "fire_validate_trigger":
+            result = commands.fire_validate_trigger(instrument)
         elif job_name == "reconcile":
             result = commands.reconcile(strict=bool(kwargs.get("strict", False)))
         elif job_name == "send_notifications":

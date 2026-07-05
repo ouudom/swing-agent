@@ -49,6 +49,17 @@ def build_scheduler():
         max_instances=1,
         coalesce=True,
     )
+    # Gate in front of the Claude /validate routine. Offset a few minutes past brief_refresh
+    # (:00/:15/:30/:45) so fresh OHLC has landed; the gate's trigger_state dedup makes the
+    # runs where no new H1 bar closed cheap no-ops (self-skip, no Claude tokens).
+    scheduler.add_job(
+        tasks.run_job,
+        CronTrigger(day_of_week="mon-fri", minute="7,22,37,52"),
+        args=["fire_validate_trigger"],
+        id="fire_validate_trigger",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.add_job(
         tasks.nightly_replay,
         CronTrigger(day_of_week="mon-fri", hour=22, minute=0),
@@ -85,6 +96,7 @@ def main(argv: list[str]) -> int:
             "zone_outcomes",
             "trade_outcome",
             "check_live_trades",
+            "fire_validate_trigger",
             "calibration",
             "reconcile",
             "send_notifications",

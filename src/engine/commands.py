@@ -106,6 +106,15 @@ def check_live_trades(instrument: str | None = None) -> CommandResult:
     return pyrun(args, timeout_s=120)
 
 
+def fire_validate_trigger(instrument: str | None = None, dry_run: bool = False) -> CommandResult:
+    args = [app_script("fire_validate_trigger.py")]
+    if instrument:
+        args += ["--instrument", instrument]
+    if dry_run:
+        args.append("--dry-run")
+    return pyrun(args, timeout_s=180)
+
+
 def reconcile(strict: bool = False) -> CommandResult:
     args = [app_script("reconcile_db_git.py")]
     if strict:
