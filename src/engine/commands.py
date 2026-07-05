@@ -70,7 +70,7 @@ def fetch_data(instrument: str, force: bool = False) -> CommandResult:
     args = [engine_script("pipeline/fetch_data.py"), "--instrument", instrument]
     if force:
         args.append("--force")
-    return pyrun(args, timeout_s=900)
+    return pyrun(args, timeout_s=1800 if instrument == "all" else 900)
 
 
 def zone_outcomes(week: str | None = None, instrument: str | None = None) -> CommandResult:

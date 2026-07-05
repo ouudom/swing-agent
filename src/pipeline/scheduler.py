@@ -70,15 +70,14 @@ def build_scheduler():
 
     scheduler = BlockingScheduler(timezone="UTC")
 
-    for instrument in INSTRUMENTS:
-        scheduler.add_job(
-            run_market_job,
-            CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/15"),
-            args=["brief_refresh", instrument],
-            id=f"brief_refresh_{instrument}",
-            max_instances=1,
-            coalesce=True,
-        )
+    scheduler.add_job(
+        run_market_job,
+        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/15"),
+        args=["brief_refresh", "all"],
+        id="brief_refresh_all",
+        max_instances=1,
+        coalesce=True,
+    )
 
     scheduler.add_job(
         run_market_job,
@@ -141,7 +140,7 @@ def main(argv: list[str]) -> int:
             "send_notifications",
         ],
     )
-    parser.add_argument("--instrument", choices=INSTRUMENTS)
+    parser.add_argument("--instrument", choices=INSTRUMENTS + ["all"])
     parser.add_argument("--week")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
