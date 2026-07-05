@@ -4,6 +4,7 @@ import { HealthStrip, Muted, Err, verdictPill, statusPill } from "./shared";
 
 export function DashboardTab({ health }: { health: ReturnType<typeof usePoll<Health>> }) {
   const zones = usePoll<Row[]>("/api/zones", 30000);
+  const zonesAtr = usePoll<Row[]>("/api/zones_atr", 30000);
   const trades = usePoll<Row[]>("/api/trades", 30000);
   const notif = usePoll<Notifications>("/api/notifications", 45000);
   const gates = usePoll<Gates>("/api/gates", 120000);
@@ -41,6 +42,28 @@ export function DashboardTab({ health }: { health: ReturnType<typeof usePoll<Hea
               ["limit_price", "Limit", (v) => fmtNum(v, 4)],
               ["anchor_locked_until", "Anchor lock", (v) => (v ? <Pill tone="warn">till {fmtTime(v)}</Pill> : "—")],
               ["hard_block_flags", "Blocks", (v) => (v ? <Pill tone="bad">{String(v)}</Pill> : "—")],
+            ]}
+          />
+        )}
+      </Section>
+
+      <Section title="Open Zones (ATR SL)" right={<Muted n={zonesAtr.data?.length} />}>
+        {zonesAtr.error ? <Err msg={zonesAtr.error} /> : !zonesAtr.data ? <Skeleton /> : (
+          <Table
+            rows={zonesAtr.data}
+            cols={[
+              ["instrument", "Instr"],
+              ["direction", "Dir"],
+              ["label", "Label"],
+              ["week", "Week"],
+              ["zone_bottom", "Zone ↓", (v) => fmtNum(v, 4)],
+              ["zone_top", "Zone ↑", (v) => fmtNum(v, 4)],
+              ["zone_confluence", "R1", (v) => fmtNum(v, 1)],
+              ["atr_status", "Status", (v) => statusPill(v)],
+              ["entry", "Entry", (v) => fmtNum(v, 4)],
+              ["sl_dist", "SL dist", (v) => fmtNum(v, 4)],
+              ["r_result", "R"],
+              ["fill_time", "Filled", (v) => (v ? fmtTime(v) : "—")],
             ]}
           />
         )}

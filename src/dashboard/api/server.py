@@ -123,19 +123,21 @@ def api_notifications():
 
 def api_gates():
     return {
-        # Upcoming CB decisions — flatten the jsonb dates array, keep future-ish rows.
+        # Upcoming CB decisions — current week + next week only (Mon this week → Sun next week).
         "cb": query(
             "SELECT bank_code, name, hard_block, caution, time_note, "
             "(d->>'date')::date AS decision_date, d->>'status' AS decision_status "
             "FROM cb_calendar, jsonb_array_elements(dates) AS d "
-            "WHERE (d->>'date')::date >= (now() AT TIME ZONE 'utc')::date - 2 "
+            "WHERE (d->>'date')::date >= date_trunc('week', now() AT TIME ZONE 'utc')::date "
+            "AND (d->>'date')::date < date_trunc('week', now() AT TIME ZONE 'utc')::date + 14 "
             "ORDER BY decision_date LIMIT 30"
         ),
-        # High-impact econ this week + next.
+        # High-impact econ, current week + next week only (Mon this week → Sun next week).
         "econ": query(
             "SELECT date, time_utc, country, event, impact, estimate, actual, prev "
-            "FROM econ_calendar WHERE date >= (now() AT TIME ZONE 'utc')::date - 1 "
-            "AND date <= (now() AT TIME ZONE 'utc')::date + 9 "
+            "FROM econ_calendar "
+            "WHERE date >= date_trunc('week', now() AT TIME ZONE 'utc')::date "
+            "AND date < date_trunc('week', now() AT TIME ZONE 'utc')::date + 14 "
             "AND upper(coalesce(impact,'')) IN ('HIGH','MEDIUM') "
             "ORDER BY date, time_utc LIMIT 60"
         ),
@@ -307,6 +309,23 @@ def api_zones():
     )
 
 
+def api_zones_atr():
+    # Comparison view: same zones, but "open" per the ATR-SL replay (zone_atr_sl_outcome),
+    # which does not drive zone_ledger.status — a zone can differ here vs /api/zones.
+    return query(
+        """
+        SELECT z.zone_id, z.instrument, z.week, z.label, z.direction,
+               z.zone_bottom, z.zone_top, z.zone_confluence, z.conviction,
+               o.status AS atr_status, o.entry, o.sl_dist, o.r_result,
+               o.fill_time, o.mfe_r, o.mae_r
+        FROM zone_ledger z
+        JOIN zone_atr_sl_outcome o ON o.zone_id = z.zone_id
+        WHERE o.status IN ('PENDING', 'RUNNING')
+        ORDER BY z.instrument, z.week DESC, z.label
+        """
+    )
+
+
 def api_pnl():
     overall = query(
         "SELECT COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS resolved, "
@@ -397,6 +416,7 @@ def api_doc(doc_type: str, key: str):
 API = {
     "/api/health": api_health,
     "/api/zones": api_zones,
+    "/api/zones_atr": api_zones_atr,
     "/api/pnl": api_pnl,
     "/api/validations": api_validations,
     "/api/pipeline": api_pipeline,
