@@ -1,93 +1,226 @@
-# swing-agent — Codex Operating Manual
+# swing-agent - Codex Operating Manual
 
-## What This Is
-Deployed, thin version of the multi-instrument swing-trading system (11 instruments: xauusd +
-10 FX pairs). Deterministic pipeline + Postgres run headless in Docker on a homeserver; the
-judgment leg (weekly forecast + hourly validation) is **you, Codex, on a schedule/routine**,
-talking to the app through **MCP only** — no Agent SDK worker.
+## Prime Directive
 
-This repo is self-contained: **do not read or write the parent `swing-trading` repo** (research
-history, full `wiki/`, `scripts/`) when working here. `swing-agent/` is what deploys.
+Operate this repo as the deployed system of record for the swing-trading app.
 
-## One Folder — `src/`
-There is no `wiki/` anymore (retired Phase 1, 2026-07-05) — **Postgres is canonical for every
-number AND every word**. `src/` is the deployed app: deterministic pipeline scripts, Postgres
-schema, scheduler, the native MCP server, the dashboard. The container never reads a `.md`; it
-runs on Postgres + config only.
+- Work only inside `swing-agent/`; do not read or write parent `swing-trading/`.
+- Runtime state is Postgres, not markdown files.
+- Codex judgment runs through MCP only.
+- Deterministic code computes numbers; Codex decides ambiguous market judgment.
+- Never invent derived numbers in prose. Recompute/read through MCP each run.
 
-## Storage Split — Postgres canonical for words too (Phase 1)
-Rules, forecasts, validations live in four DB tables served over MCP:
-- `rulebook` — constitution, setup_library, currency_exposure, per-instrument profile +
-  confluence_criteria, templates (human-authored reference).
-- `context_doc` — regenerated snapshots: `yield_environment` (macro), `calibration`.
-- `forecast_doc` — weekly forecast prose (key `{YYYY-WNN}/{instrument}`).
-- `validation_doc` — validation prose (key `{YYYY-MM-DD}/{instrument}`).
-- `doc_history` — prior versions (replaces the git blame lost by leaving files).
+## System Shape
 
-Read via `get_context_pack(instrument)` (boot bundle) / `get_doc(doc_type,key)` / `list_docs(...)`;
-write via `write_doc(...)`. A fresh cloud routine gets full judgment context from MCP alone — no
-git checkout needed. Still never store a derived number in a doc body — recompute via MCP each
-time. `src/database/init.sql` + `apply_postgres_migrations.py` create the tables;
-`import_wiki_to_doc.py` was the one-shot migration off the old `wiki/*.md` (already run, file
-history only — no wiki/ left to re-import from).
+Thin deployed swing-trading system for 11 instruments:
 
-## MCP — your only gateway to the app
-One transport, 21 tools, one Postgres backend:
-- `mcp-native` (native MCP, Streamable HTTP, port 8766, `/mcp` endpoint) — register via
-  `Codex mcp add --transport http swing-agent http://<host>:8766/mcp --header
-  "Authorization: Bearer $MCP_AUTH_TOKEN"`.
+`xauusd`, `eurusd`, `gbpusd`, `eurgbp`, `audusd`, `nzdusd`, `usdcad`, `usdchf`,
+`usdjpy`, `eurjpy`, `gbpjpy`.
 
-Tools: `get_brief`, `get_zone_context` (full DB-native zone-scoring context for /weekly —
-structure/momentum/macro/ATR+SL/COT; replaces the old weekly_pull txt), `sql_query`
-(read-only SELECT/WITH/SHOW only), `get_news`, `get_econ`, `get_calibration`,
-`compute_indicators`, `run_gate`, `run_replay`, `run_calibration`,
-`run_backtest` (allowlisted scripts + args only) — data/compute, read-only or sandboxed.
-`get_context_pack`, `get_doc`, `list_docs` — prose docs (rules/forecasts/validations) read from DB.
-`write_doc` — upsert a prose doc (versions prior into `doc_history`).
-`publish_zone`, `write_verdict`, `write_trade_log`, `queue_notification`, `update_checkpoint` — structured writes,
-idempotent (upsert on natural key). **`write_verdict` hard-rejects `ORDER_LIMIT` if
-`hard_block_flags` is non-empty or `entry_confluence < 5.0`** — the gate is enforced server-side,
-not by your judgment alone.
-`snapshot_features` — freezes the feature vector a decision was scored on (`feature_snapshot`
-table, Phase 3) for research/backtesting once enough weeks accumulate; call once per zone at
-publish (R1) and once per zone at validate (R2), not on every read.
+Services:
 
-## Per-Run Discipline — DB is the whole record now
-1. Call MCP to read context (`get_context_pack`, `get_brief`, gates, calibration, news/econ).
-2. Decide (zone selection / bias-flip / re-forecast / verdict) — this is the part that needs you.
-3. **Structured write through MCP** (`publish_zone` / `write_verdict` / `write_trade_log`) — the
-   numeric durable record.
-4. **Prose write through MCP** (`write_doc`) — the forecast/validation markdown body, replacing
-   the old `wiki/weekly-forecasts/...` / `wiki/validations/...` files. `write_doc` versions the
-   prior body into `doc_history` automatically.
-5. git is now optional (no `wiki/` mirror to keep in sync) — only touch it if this deploy still
-   maintains a separate git-based audit trail; otherwise Postgres alone is the record.
+- `postgres` - canonical DB.
+- `pipeline` - APScheduler + deterministic scripts.
+- `mcp-native` - native MCP over Streamable HTTP on port `8766`, path `/mcp`.
+- `dashboard` - read-only monitoring UI/API on port `8888`.
 
-If a write in step 3/4 fails partway, do **not** re-call with mutated state to "fix" it — re-run
-with the same `zone_id`/`doc_key`; every write is idempotent (upsert on natural key).
+One app folder matters: `src/`.
 
-## Core Formulas (v3 — matches parent constitution, ported verbatim into `src/engine/scripts/`)
+There is no `wiki/` anymore. Phase 1, 2026-07-05, moved prose into Postgres. The container runs
+from Postgres + config. It never reads markdown as runtime state.
+
+## Postgres Is Canonical
+
+Tables for prose:
+
+- `rulebook` - constitution, setup library, currency exposure, templates, per-instrument profile
+  and confluence criteria.
+- `context_doc` - regenerated snapshots, especially `yield_environment` and `calibration`.
+- `forecast_doc` - weekly forecast prose. Key: `{YYYY-WNN}/{instrument}`.
+- `validation_doc` - validation prose. Key: `{YYYY-MM-DD}/{instrument}`.
+- `doc_history` - prior prose versions.
+
+Tables for structured trading state:
+
+- `zone_ledger` - published zones and current zone quality state.
+- `validation_verdict` - hourly validation verdict records.
+- `trade_log` - real order lifecycle state.
+- `zone_outcome`, `trade_outcome` - replay/outcome records.
+- `feature_snapshot` - frozen feature vectors used for publish/validate decisions.
+- `notification_event`, `routine_checkpoint`, `trigger_state` - ops state.
+
+## MCP Only
+
+Register:
+
+```bash
+codex mcp add --transport http swing-agent http://<host>:8766/mcp \
+  --header "Authorization: Bearer $MCP_AUTH_TOKEN"
 ```
-SL:     H4_ATR14 if (0.5×D1_ATR14) < H4_ATR14 else avg(0.5×D1_ATR14, H4_ATR14)
-offset: session_mult × SL  (outward beyond anchor, EC-independent)
-        session_mult @ order-placement UTC: Asia 22–07 = 0.40 | London 07–12 = 0.20 |
-        NY 12–21 = 0.30 (owns 12–16 overlap)
-anchor: confirmation candle CLOSE (E0 present, locked 4h) | 50% zone midpoint (no E0)
-TP:     3.0R nearer zone | 4.0R further zone (distance-tiered, single limit); BE at +1.5R
-Friday: 13:00 UTC (NY open) cancel all unfilled limits; open positions keep running.
-```
-These constants live in `src/engine/scripts/replay/trade_outcome.py` (`TP_R_NEAR`, `TP_R_FAR`,
-`_SESSION_MULT`, `friday_cutoff`) — read the code, don't hand-recompute.
 
-## Docs Map
-- `README.md` — orientation, quick links.
-- `DEPLOYMENT_UBUNTU.md` — clone → env → Postgres → backfill → start → smoke test → update/rollback.
-- `IMPLEMENTATION_PLAN.md` — architecture decisions, storage split, git workflow, migration status.
-- `ROUTINES.md` — the weekly/hourly routine contract against MCP, cloud dry-run path.
-- `src/README.md` — service list, one-shot jobs, MCP tool reference, DB↔git reconcile/parity checks.
+If a connector cannot send headers, server also accepts `?token=<MCP_AUTH_TOKEN>`.
+
+Current MCP tool surface has 21 tools:
+
+- Read/context: `get_context_pack`, `get_doc`, `list_docs`, `get_brief`, `get_zone_context`,
+  `sql_query`, `get_news`, `get_econ`, `get_calibration`.
+- Compute: `compute_indicators`, `run_gate`, `run_replay`, `run_calibration`, `run_backtest`.
+- Writes: `publish_zone`, `write_verdict`, `write_trade_log`, `snapshot_features`,
+  `write_doc`, `queue_notification`, `update_checkpoint`.
+
+`sql_query` is read-only: `SELECT` / `WITH` / `SHOW`, capped by server settings.
+
+`run_backtest` and `run_gate` are allowlisted. Do not bypass with shell unless explicitly doing
+local code maintenance, not live ops.
+
+## Judgment Routine Contract
+
+Every live market run follows same order:
+
+1. Read context through MCP:
+   `get_context_pack(instrument)`, `get_brief`, `get_zone_context` where relevant,
+   gates, calibration, news/econ.
+2. Decide:
+   zone selection, bias flip, re-forecast need, entry verdict, contradiction handling.
+3. Write structured state first:
+   `publish_zone`, `write_verdict`, `write_trade_log`, `snapshot_features`.
+4. Write prose second:
+   `write_doc`.
+5. Do not use git as operational record unless user explicitly maintains a separate audit trail.
+
+If a write partially fails, retry same natural key:
+
+- same `zone_id`
+- same `run_id`
+- same `doc_key`
+
+Writes are designed as upserts. Do not mutate inputs just to make retry pass.
+
+## Weekly Forecast
+
+Monday after weekly data refresh, per instrument:
+
+1. Call `get_context_pack(instrument)`.
+2. Call `get_zone_context(instrument)` for full DB-native zone-scoring context:
+   structure, momentum, macro, ATR/SL preview, COT.
+3. Call `get_brief`, `run_replay`, `get_calibration`, `get_news`, `get_econ`.
+4. Select and score Trading Zones.
+5. For every published zone:
+   `publish_zone(...)`.
+6. Freeze R1 features:
+   `snapshot_features(event_type="publish", features=<get_zone_context output or scored subset>)`.
+7. Write forecast prose:
+   `write_doc(doc_type="forecast", key="{YYYY-WNN}/{instrument}", ...)`.
+
+## Validate Routine
+
+Validate is event-gated, not blind hourly.
+
+`src/engine/scripts/ops/fire_validate_trigger.py` runs inside the scheduler at
+`:07/:22/:37/:52` UTC, after OHLC refresh. It wakes the model only when deterministic checks find
+an actionable live zone.
+
+Fire reasons:
+
+- `ENTRY` - latest H1 touches a live zone, E0 fires toward it, programmatic EC >= `4.0`.
+- `INVAL` - V1 or V1b invalidation fires on a still-live zone.
+
+Skips:
+
+- no new H1 since last fire (`trigger_state` dedup).
+- no OPEN zone.
+- zone already RUNNING or terminal in `trade_log`.
+- zone already INVALIDATED.
+
+When fired, per instrument:
+
+1. Read `get_context_pack`, `get_brief`, `compute_indicators`, gates, calibration, news/econ.
+2. Decide `ORDER_LIMIT`, `NO_TRADE`, `INVALIDATED`, `HARD_BLOCK`, or `CANCEL_LIMIT`.
+3. Write `write_verdict`.
+4. Write `write_trade_log`.
+5. Freeze R2 features:
+   `snapshot_features(event_type="validate", features=<EC breakdown + flags + live inputs>)`.
+6. Write validation prose:
+   `write_doc(doc_type="validation", key="{YYYY-MM-DD}/{instrument}", ...)`.
+
+Server-enforced gates:
+
+- `write_verdict` rejects `ORDER_LIMIT` when `hard_block_flags` non-empty.
+- `write_verdict` rejects `ORDER_LIMIT` when `entry_confluence < 5.0`.
+- `write_trade_log` also rejects those cases.
+- `write_trade_log` requires `limit_price`, `sl_price`, `tp_price` for `ORDER_LIMIT`.
+- Once `trade_log.status` is `RUNNING`, `WIN`, `LOSS`, `BREAKEVEN`, or `EXPIRED`, validate cannot
+  change it. Only scheduled `check_live_trades.py` may move it further.
+
+## Trade Math
+
+Do not hand-recompute core trade constants. Read code.
+
+Source: `src/engine/scripts/replay/trade_outcome.py`.
+
+Current v3 formulas:
+
+```text
+SL:     H4_ATR14 if (0.5 * D1_ATR14) < H4_ATR14 else avg(0.5 * D1_ATR14, H4_ATR14)
+offset: session_mult * SL, outward beyond anchor
+        Asia 22-07 UTC = 0.40
+        London 07-12 UTC = 0.20
+        NY 12-21 UTC = 0.30, owns 12-16 overlap
+anchor: confirmation candle close when E0 present and locked 4h; else 50% zone midpoint
+TP:     3.0R nearer zone, 4.0R further zone, single limit
+BE:     +1.5R
+Friday: 13:00 UTC cancel unfilled limits; open positions keep running
+```
 
 ## Contradiction Protocol
-Macro bias vs technical structure conflict → flag with `> [!warning]`, lower conviction to MEDIUM
-regardless of Zone Confluence score, note it in the validation/forecast doc body written via
-`write_doc` (there is no `_HOT.md` to park pending questions in — the forecast/validation doc
-itself is the record).
+
+Macro bias vs technical structure conflict:
+
+- Add `> [!warning]` in prose.
+- Lower conviction to `MEDIUM` regardless of zone confluence.
+- Record why in forecast/validation body via `write_doc`.
+- Keep structured state consistent with final decision.
+
+No `_HOT.md`. No parking-lot file. The forecast/validation doc itself is the record.
+
+## Local Code Work
+
+Use repo-local docs:
+
+- `README.md` - orientation.
+- `DEPLOYMENT_UBUNTU.md` - server deploy, MCP registration, smoke tests.
+- `ROUTINES.md` - operational routine contract.
+- `src/README.md` - service commands, MCP reference, dashboard notes.
+- `IMPLEMENTATION_PLAN.md` - historical only; top notice supersedes old `wiki/` design.
+
+Useful checks:
+
+```bash
+docker compose run --rm pipeline python src/engine/scripts/ops/fire_validate_trigger.py --dry-run
+docker compose run --rm pipeline python src/engine/scripts/ops/fire_validate_trigger.py --instrument xauusd --dry-run
+docker compose exec -T pipeline python src/engine/scripts/ops/apply_postgres_migrations.py
+docker compose exec -T pipeline python src/engine/scripts/ops/send_notifications.py --dry-run
+```
+
+Dashboard:
+
+```bash
+curl http://127.0.0.1:8888/health
+curl http://127.0.0.1:8888/api/health
+```
+
+MCP health:
+
+```bash
+curl http://127.0.0.1:8766/health
+```
+
+## Hard Boundaries
+
+- Do not edit parent repo.
+- Do not resurrect `wiki/`.
+- Do not store computed numbers only in prose.
+- Do not bypass MCP for live state writes.
+- Do not override hard-block gates with judgment.
+- Do not move locked `trade_log` rows from validate.
+- Do not expose MCP publicly without strong token and tunnel/VPN.
