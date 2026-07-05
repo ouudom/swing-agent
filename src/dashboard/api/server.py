@@ -286,24 +286,17 @@ def api_doc_history(doc_type: str, key: str):
 
 
 def api_zones():
-    # Open zones + the most recent validation verdict per zone.
+    # Zone-quality replay view: "open" per zone_outcome (SL = zone width), same
+    # shape as api_zones_atr (SL = constitution ATR) for direct comparison.
     return query(
         """
         SELECT z.zone_id, z.instrument, z.week, z.label, z.direction,
                z.zone_bottom, z.zone_top, z.zone_confluence, z.conviction,
-               z.status, z.daily_verdict, z.entry_confluence, z.limit_price,
-               z.invalidation_level, z.tp_anchor, z.validated_date, z.published_utc,
-               v.verdict AS latest_verdict, v.validation_date AS latest_verdict_date,
-               v.hard_block_flags
+               o.status, o.entry, o.sl_dist, o.r_result,
+               o.fill_time, o.mfe_r, o.mae_r
         FROM zone_ledger z
-        LEFT JOIN LATERAL (
-            SELECT verdict, validation_date, hard_block_flags
-            FROM validation_verdict vv
-            WHERE vv.zone_id = z.zone_id
-            ORDER BY validation_date DESC, updated_utc DESC
-            LIMIT 1
-        ) v ON true
-        WHERE z.status = 'OPEN'
+        JOIN zone_outcome o ON o.zone_id = z.zone_id
+        WHERE o.status IN ('PENDING', 'RUNNING')
         ORDER BY z.instrument, z.week DESC, z.label
         """
     )

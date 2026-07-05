@@ -1,6 +1,6 @@
 import { Health, Notifications, Gates, Row, usePoll } from "../api";
 import { Section, Table, Pill, Kpi, Skeleton, fmtNum, fmtTime } from "../ui";
-import { HealthStrip, Muted, Err, verdictPill, statusPill } from "./shared";
+import { HealthStrip, Muted, Err, statusPill } from "./shared";
 
 export function DashboardTab({ health }: { health: ReturnType<typeof usePoll<Health>> }) {
   const zones = usePoll<Row[]>("/api/zones", 30000);
@@ -37,11 +37,11 @@ export function DashboardTab({ health }: { health: ReturnType<typeof usePoll<Hea
               ["zone_bottom", "Zone ↓", (v) => fmtNum(v, 4)],
               ["zone_top", "Zone ↑", (v) => fmtNum(v, 4)],
               ["zone_confluence", "R1", (v) => fmtNum(v, 1)],
-              ["latest_verdict", "Verdict", (v) => verdictPill(v)],
-              ["entry_confluence", "EC", (v) => fmtNum(v, 1)],
-              ["limit_price", "Limit", (v) => fmtNum(v, 4)],
-              ["anchor_locked_until", "Anchor lock", (v) => (v ? <Pill tone="warn">till {fmtTime(v)}</Pill> : "—")],
-              ["hard_block_flags", "Blocks", (v) => (v ? <Pill tone="bad">{String(v)}</Pill> : "—")],
+              ["status", "Status", (v) => statusPill(v)],
+              ["entry", "Entry", (v) => fmtNum(v, 4)],
+              ["sl_dist", "SL dist", (v) => fmtNum(v, 4)],
+              ["r_result", "R"],
+              ["fill_time", "Filled", (v) => (v ? fmtTime(v) : "—")],
             ]}
           />
         )}
