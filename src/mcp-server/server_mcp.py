@@ -14,6 +14,16 @@ Register with Claude Code:
 
 Auth: a Bearer-token ASGI middleware guards every path except /health. Set a strong
 MCP_AUTH_TOKEN in .env; never expose this port publicly without a tunnel/VPN.
+
+Some connector UIs (e.g. claude.ai's generic custom-connector dialog) have no field for a
+custom Authorization header — only URL + optional OAuth. For those, the token can ride as a
+`?token=` query param instead:
+
+    https://<host>/mcp?token=<MCP_AUTH_TOKEN>
+
+This is strictly a fallback for header-less clients; prefer the header form (claude mcp add
+above) wherever the client supports it — a query-string token is more likely to end up in
+access logs or a Referer header than one carried in a header.
 """
 from __future__ import annotations
 
@@ -48,7 +58,9 @@ class BearerAuth(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path == "/health":
             return JSONResponse({"ok": True})
-        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+        header_ok = request.headers.get("Authorization") == f"Bearer {TOKEN}"
+        query_ok = request.query_params.get("token") == TOKEN
+        if not (header_ok or query_ok):
             return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
         return await call_next(request)
 

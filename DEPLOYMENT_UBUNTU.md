@@ -157,6 +157,14 @@ claude mcp add --transport http swing-agent \
   --header "Authorization: Bearer $MCP_AUTH_TOKEN"
 ```
 
+Some connector UIs (e.g. claude.ai's generic "Add custom connector" dialog) only take a URL —
+no custom-header field. For those, pass the token as a query param instead (checked as a
+fallback in `BearerAuth`, `src/mcp-server/server_mcp.py`):
+
+```
+https://<host-or-tunnel>/mcp?token=<MCP_AUTH_TOKEN>
+```
+
 All 16 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
 `run_calibration`, `get_news`, `get_econ`, `get_calibration`, `compute_indicators`,
 `publish_zone`, `write_verdict`, `write_trade_log`, `queue_notification`, `update_checkpoint`) then
