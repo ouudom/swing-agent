@@ -342,6 +342,46 @@ CREATE TABLE IF NOT EXISTS doc_history (
   PRIMARY KEY (source_table, doc_key, version)
 );
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Phase 2: static config JSON → DB. Rebuilt/edited by Claude (web search during
+-- /weekly JPY runs, yearly calendar rebuild) instead of hand-editing JSON files.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Central-bank decision calendar (check_cb_calendar.py). One row per bank; hard_block/
+-- caution are the instrument lists that bank's decision affects; dates is the JSON array
+-- of {date, status} the checker scans within its lookahead window.
+CREATE TABLE IF NOT EXISTS cb_calendar (
+  bank_code text PRIMARY KEY,        -- 'FOMC' | 'ECB' | 'BoE' | 'BoJ' | 'SNB' | 'RBA' | 'RBNZ' | 'BoC'
+  name text NOT NULL,
+  time_note text,
+  hard_block text[] NOT NULL DEFAULT '{}',
+  caution text[] NOT NULL DEFAULT '{}',
+  dates jsonb NOT NULL DEFAULT '[]'::jsonb,   -- [{"date":"2026-07-29","status":"confirmed"}, ...]
+  verified_through date,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+
+-- JPY MoF intervention watch (check_intervention_watch.py). One row per JPY pair.
+CREATE TABLE IF NOT EXISTS intervention_watch (
+  pair text PRIMARY KEY,              -- 'usdjpy' | 'eurjpy' | 'gbpjpy'
+  intervention_level double precision NOT NULL,
+  caution_band double precision NOT NULL,
+  regime text,
+  verified_through date,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+
+-- Jawboning quote log — append-only, Claude adds rows from web search each /weekly JPY run.
+CREATE TABLE IF NOT EXISTS intervention_jawboning (
+  pair text NOT NULL REFERENCES intervention_watch(pair) ON DELETE CASCADE,
+  event_date date NOT NULL,
+  official text,
+  quote text,
+  source text,
+  created_utc timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (pair, event_date, official)
+);
+
 CREATE TABLE IF NOT EXISTS routine_checkpoint (
   routine_name text PRIMARY KEY,
   status text NOT NULL,

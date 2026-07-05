@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Health, Pnl, Row, usePoll, getDoc } from "./api";
 import { Section, Table, Pill, fmtNum, fmtTime, ageMinutes } from "./ui";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -170,7 +172,9 @@ function DocsPanel({ rows }: { rows: Row[] }) {
                 <b>{String(sel.title || sel.doc_key)}</b>
                 <span className="muted">{String(sel.doc_type)} · {String(sel.doc_key)} · v{String(sel.version)}</span>
               </div>
-              <pre className="docs-md">{busy ? "loading…" : body}</pre>
+              <div className="docs-md">
+                {busy ? "loading…" : <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>}
+              </div>
             </>
           ) : (
             <p className="empty">Select a doc to view its body.</p>

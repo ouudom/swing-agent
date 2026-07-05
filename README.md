@@ -4,14 +4,12 @@ Self-hosted, Dockerized swing-trading application: deterministic pipeline + Post
 MCP server, driven by Claude Code (weekly forecast / hourly validation) on a schedule. No
 Agent SDK worker — Claude Code talks to the app entirely through MCP.
 
-Two folders:
-
-- **`wiki/`** — AI execution context. Curated rules, per-instrument confluence + profile,
-  macro/calibration state, output templates, and the two AI-output folders
-  (`weekly-forecasts/`, `validations/`). Nothing else lives here — no history dumps, no
-  decisions log, no `_HOT`/`_INDEX`.
-- **`src/`** — the deployed app: deterministic pipeline scripts, Postgres schema, scheduler,
-  and the native MCP server (`mcp-native` on :8766, `/mcp` endpoint, for Claude Code).
+One folder — `src/`: the deployed app (deterministic pipeline scripts, Postgres schema,
+scheduler, native MCP server on :8766 `/mcp`, dashboard). There is no `wiki/` anymore — as of
+Phase 1 (2026-07-05), Postgres is canonical for both numbers *and* prose. Rules, forecasts, and
+validations live in `rulebook` / `context_doc` / `forecast_doc` / `validation_doc`, served over
+MCP (`get_context_pack`, `get_doc`, `list_docs`, `write_doc`) and browsable in the dashboard's
+Docs tab.
 
 ## Quick links
 
@@ -27,4 +25,4 @@ Two folders:
 
 Only `swing-agent/` is deployed — the parent `swing-trading` repo (research history, full
 `wiki/`, `scripts/`) is not part of the container image or the runtime. `src/` runs headless
-on Postgres + config; it never reads a `.md` file.
+on Postgres + config; it never reads a `.md` file — Claude Code reads/writes prose through MCP.

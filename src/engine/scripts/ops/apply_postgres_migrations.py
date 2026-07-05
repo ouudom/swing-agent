@@ -160,6 +160,40 @@ DDL = [
       PRIMARY KEY (source_table, doc_key, version)
     )
     """,
+    # Phase 2: static config JSON (cb_calendar / intervention_watch) → DB.
+    """
+    CREATE TABLE IF NOT EXISTS cb_calendar (
+      bank_code text PRIMARY KEY,
+      name text NOT NULL,
+      time_note text,
+      hard_block text[] NOT NULL DEFAULT '{}',
+      caution text[] NOT NULL DEFAULT '{}',
+      dates jsonb NOT NULL DEFAULT '[]'::jsonb,
+      verified_through date,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS intervention_watch (
+      pair text PRIMARY KEY,
+      intervention_level double precision NOT NULL,
+      caution_band double precision NOT NULL,
+      regime text,
+      verified_through date,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS intervention_jawboning (
+      pair text NOT NULL REFERENCES intervention_watch(pair) ON DELETE CASCADE,
+      event_date date NOT NULL,
+      official text,
+      quote text,
+      source text,
+      created_utc timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (pair, event_date, official)
+    )
+    """,
 ]
 
 

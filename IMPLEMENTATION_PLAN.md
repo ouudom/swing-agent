@@ -1,3 +1,10 @@
+> **Superseded 2026-07-05 (Phase 1):** the `wiki/` + `src/` two-folder split described below,
+> and every `wiki/`-path reference in this document, was retired. `wiki/*.md` was migrated into
+> Postgres (`rulebook`/`context_doc`/`forecast_doc`/`validation_doc`, see `CLAUDE.md` "Storage
+> Split") via `import_wiki_to_doc.py`, then the folder was deleted. This file is kept as-is for
+> the historical record of what was decided and why at each stage — read current architecture
+> from `CLAUDE.md` / `README.md` / `ROUTINES.md`, not from the plan below.
+
 # swing-agent — Thin Application Migration Plan
 
 **Goal:** compact the current markdown-authoring + SQLite research system into a self-hosted,

@@ -1,14 +1,16 @@
 # swing-agent Routines
 
-Operational contract for the AI leg. Run from the `swing-agent/` repo root. The app owns numbers in
-Postgres. Claude Code owns prose in `wiki/`.
+Operational contract for the AI leg. Run from the `swing-agent/` repo root. Postgres is canonical
+for numbers and prose (Phase 1, 2026-07-05) — there is no `wiki/` to check out or commit to.
 
 ## Ownership
 
-- Weekly writes only `wiki/weekly-forecasts/{YYYYWNN}/{instrument}.md` (e.g. `2026W27/xauusd.md`).
-- Validate writes only `wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md` (e.g. `20260704/xauusd.md`).
-- Structured DB write happens first through MCP; markdown commit happens second.
-- Reconcile flags any split-brain after retries.
+- Weekly writes only `forecast_doc` (key `{YYYY-WNN}/{instrument}`) via `write_doc`.
+- Validate writes only `validation_doc` (key `{YYYY-MM-DD}/{instrument}`) via `write_doc`.
+- Structured DB write (`publish_zone`/`write_verdict`/`write_trade_log`) happens first through
+  MCP; the `write_doc` prose write happens second — both are the durable record, no git step.
+- Reconcile (`reconcile_db_git.py`) is now optional — only relevant if this deploy still
+  maintains a separate git-based audit trail alongside Postgres.
 
 ## Laptop Validate Routine
 
@@ -19,16 +21,15 @@ export MCP_URL=http://127.0.0.1:8766/mcp
 export MCP_AUTH_TOKEN=<token>
 
 # Per instrument:
-# 1. Read wiki context.
+# 1. Call MCP get_context_pack(instrument) — rules + confluence + macro + calibration.
 # 2. Call MCP get_brief/run_gate/compute_indicators.
 # 3. Decide verdict.
-# 4. MCP write_verdict.
-# 5. Write wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md.
-# 6. git add + commit + push.
+# 4. MCP write_verdict + write_trade_log.
+# 5. MCP write_doc(doc_type="validation", key="{date}/{instrument}", body=<markdown>).
 ```
 
-Retry rule: if DB write succeeds and git commit fails, do not write DB again with a new `run_id`.
-Reuse the same `run_id`, fix git, then run reconcile.
+Retry rule: writes are idempotent (upsert on natural key / doc_key) — re-run with the same
+`run_id`/`doc_key` rather than mutating state on a partial failure.
 
 ### Event-Gated Firing (replaces the blind hourly clock)
 
@@ -80,11 +81,11 @@ export MCP_URL=http://127.0.0.1:8766/mcp
 export MCP_AUTH_TOKEN=<token>
 
 # For all 11 instruments:
-# 1. Call MCP get_zone_context (structure/momentum/macro/ATR+SL/COT) +
+# 1. Call MCP get_context_pack(instrument) + get_zone_context (structure/momentum/macro/ATR+SL/COT) +
 #    get_brief/run_replay/get_calibration/get_news/get_econ.
-# 2. Score Trading Zones; write weekly forecast markdown.
+# 2. Score Trading Zones.
 # 3. For every published zone: MCP publish_zone.
-# 4. git add + commit + push.
+# 4. MCP write_doc(doc_type="forecast", key="{week}/{instrument}", body=<markdown>).
 ```
 
 ## Reconcile
@@ -118,9 +119,8 @@ Only after laptop routine is boring:
 
 1. Expose MCP via Tailscale or Cloudflare Tunnel.
 2. Require strong `MCP_AUTH_TOKEN`.
-3. Give cloud routine git credentials limited to this repo.
-4. Shadow mode first: read MCP, write markdown to test branch, no `publish_zone`/`write_verdict`.
-5. Enable writes for one instrument only.
-6. Expand after reconcile stays clean.
+3. Shadow mode first: read MCP context only, no `publish_zone`/`write_verdict`/`write_doc`.
+4. Enable writes for one instrument only.
+5. Expand after that instrument's writes look right in the dashboard.
 
 Rollback: disable cloud routine; laptop routine remains source of operations.

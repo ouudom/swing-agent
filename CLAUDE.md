@@ -9,22 +9,14 @@ talking to the app through **MCP only** — no Agent SDK worker.
 This repo is self-contained: **do not read or write the parent `swing-trading` repo** (research
 history, full `wiki/`, `scripts/`) when working here. `swing-agent/` is what deploys.
 
-## Two Folders
-- **`wiki/`** — your execution context. Curated rules only: `wiki/system/constitution.md`
-  (risk/SL/TP/offset/multi-instrument table), `wiki/system/{instrument}/` (profile +
-  confluence_criteria), `wiki/system/calibration.md` (edge performance),
-  `wiki/system/yield_environment.md` (macro baseline), `wiki/templates/`. Plus your own
-  output trail: `wiki/weekly-forecasts/{YYYYWNN}/{instrument}.md` (e.g. `2026W27/xauusd.md`) and
-  `wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md` (e.g. `20260704/xauusd.md`).
-  **Nothing else lives here** — no `_HOT.md`, `_INDEX.md`, `decisions.md`, no research/history
-  dump. Never add a parallel context file; update in place.
-- **`src/`** — the deployed app: deterministic pipeline scripts, Postgres schema, scheduler,
-  the native MCP server. The container never reads a `.md`; it runs on Postgres + config only.
+## One Folder — `src/`
+There is no `wiki/` anymore (retired Phase 1, 2026-07-05) — **Postgres is canonical for every
+number AND every word**. `src/` is the deployed app: deterministic pipeline scripts, Postgres
+schema, scheduler, the native MCP server, the dashboard. The container never reads a `.md`; it
+runs on Postgres + config only.
 
-## Storage Split (Phase 1 — Postgres now canonical for words too)
-**Postgres = canonical for every number** (OHLC, zones, outcomes, calibration, news, econ
-calendar) **and, since Phase 1, for every word** — rules, forecasts, validations now live in
-four DB tables served over MCP, not in `wiki/*.md`:
+## Storage Split — Postgres canonical for words too (Phase 1)
+Rules, forecasts, validations live in four DB tables served over MCP:
 - `rulebook` — constitution, setup_library, currency_exposure, per-instrument profile +
   confluence_criteria, templates (human-authored reference).
 - `context_doc` — regenerated snapshots: `yield_environment` (macro), `calibration`.
@@ -34,12 +26,10 @@ four DB tables served over MCP, not in `wiki/*.md`:
 
 Read via `get_context_pack(instrument)` (boot bundle) / `get_doc(doc_type,key)` / `list_docs(...)`;
 write via `write_doc(...)`. A fresh cloud routine gets full judgment context from MCP alone — no
-git checkout needed, so local `/weekly` md is no longer a prerequisite for cloud `/validate`.
-Still never store a derived number in a doc body — recompute via MCP each time.
-
-`wiki/*.md` is now a legacy mirror (migrate once with `import_wiki_to_doc.py`); it can be deleted
-after the DB import is verified. `src/database/init.sql` + `apply_postgres_migrations.py` create
-the tables.
+git checkout needed. Still never store a derived number in a doc body — recompute via MCP each
+time. `src/database/init.sql` + `apply_postgres_migrations.py` create the tables;
+`import_wiki_to_doc.py` was the one-shot migration off the old `wiki/*.md` (already run, file
+history only — no wiki/ left to re-import from).
 
 ## MCP — your only gateway to the app
 One transport, 20 tools, one Postgres backend:
@@ -59,23 +49,19 @@ idempotent (upsert on natural key). **`write_verdict` hard-rejects `ORDER_LIMIT`
 `hard_block_flags` is non-empty or `entry_confluence < 5.0`** — the gate is enforced server-side,
 not by your judgment alone.
 
-## Per-Run Discipline — DB first, then git
-1. Call MCP to read context (`get_brief`, gates, calibration, news/econ).
+## Per-Run Discipline — DB is the whole record now
+1. Call MCP to read context (`get_context_pack`, `get_brief`, gates, calibration, news/econ).
 2. Decide (zone selection / bias-flip / re-forecast / verdict) — this is the part that needs you.
-3. **Structured write through MCP first** (`publish_zone` / `write_verdict`) — this is the durable
-   record even if the next step fails.
-4. Write markdown to `wiki/weekly-forecasts/{week}/{instrument}.md` or `wiki/validations/{month}/{date}/{instrument}.md`.
-5. `git add` + commit + push on the **`live` branch**.
+3. **Structured write through MCP** (`publish_zone` / `write_verdict` / `write_trade_log`) — the
+   numeric durable record.
+4. **Prose write through MCP** (`write_doc`) — the forecast/validation markdown body, replacing
+   the old `wiki/weekly-forecasts/...` / `wiki/validations/...` files. `write_doc` versions the
+   prior body into `doc_history` automatically.
+5. git is now optional (no `wiki/` mirror to keep in sync) — only touch it if this deploy still
+   maintains a separate git-based audit trail; otherwise Postgres alone is the record.
 
-If the DB write succeeds but git fails: **do not re-call the MCP write with a new `run_id`.**
-Reuse the same `run_id`, fix git, then run reconcile (`src/engine/scripts/ops/reconcile_db_git.py`).
-
-## Path Ownership (why `live` never conflicts)
-- `/weekly` (you, manual) owns `wiki/weekly-forecasts/{week}/{instrument}.md` +
-  `wiki/system/yield_environment.md`.
-- `/validate` (you, hourly routine) owns `wiki/validations/{month}/{date}/{instrument}.md` — nothing else.
-These never overlap, so both can read/write `live` without merge conflicts. Full contract:
-`ROUTINES.md`.
+If a write in step 3/4 fails partway, do **not** re-call with mutated state to "fix" it — re-run
+with the same `zone_id`/`doc_key`; every write is idempotent (upsert on natural key).
 
 ## Core Formulas (v3 — matches parent constitution, ported verbatim into `src/engine/scripts/`)
 ```
@@ -99,5 +85,6 @@ These constants live in `src/engine/scripts/replay/trade_outcome.py` (`TP_R_NEAR
 
 ## Contradiction Protocol
 Macro bias vs technical structure conflict → flag with `> [!warning]`, lower conviction to MEDIUM
-regardless of Zone Confluence score, note it in the validation/forecast markdown (this repo has
-no `_HOT.md` to park pending questions in — the forecast/validation file itself is the record).
+regardless of Zone Confluence score, note it in the validation/forecast doc body written via
+`write_doc` (there is no `_HOT.md` to park pending questions in — the forecast/validation doc
+itself is the record).
