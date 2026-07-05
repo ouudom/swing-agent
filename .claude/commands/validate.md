@@ -11,10 +11,11 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
 
 ## Per-instrument steps
 
-1. **Read wiki context** (words, not numbers — this is what makes the routine judgment, not a
-   mechanical rerun):
-   - `wiki/system/constitution.md` — SL/TP/offset formula, hard-block rules (V1/V1b/V3)
-   - `wiki/{instrument}/confluence_criteria.md` — Entry Confluence (R2) scoring rubric
+1. **Read rules context via MCP** (words, not numbers — Phase 1: docs live in Postgres, not
+   wiki/*.md — this is what makes the routine judgment, not a mechanical rerun):
+   - `get_context_pack(instrument)` — constitution (SL/TP/offset + V1/V1b/V3 hard blocks),
+     this instrument's confluence_criteria (R2 rubric), macro baseline, calibration — bodies
+     included. (Single doc: `get_doc("rulebook","{instrument}/confluence")`.)
    - Any existing zone rows for this instrument this week (from `get_brief` below)
 
 2. **CB calendar check first (mandatory)** — `run_gate("cb_calendar", [instrument])`.
@@ -42,8 +43,10 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
      that's expected once a real order is live; the checker script owns it from there, not you.
      Skip the call (or just log the rejection) rather than retrying with different values.
 
-6. **Write markdown** — `wiki/validations/{YYYYMM}/{YYYYMMDD}/{instrument}.md`
-   (e.g. `20260704/xauusd.md`). Per zone: ✅ ORDER LIMIT | ❌ NO TRADE / INVALIDATED.
+6. **Write the validation prose to the DB** (Phase 1 — no wiki/*.md):
+   `write_doc(doc_type="validation", key="{YYYY-MM-DD}/{instrument}", body=<full markdown>,
+   instrument=instrument, valid_date="{YYYY-MM-DD}", week="{YYYY-WNN}", title=..., frontmatter={...})`
+   — e.g. key `2026-07-05/xauusd`. Per zone in the body: ✅ ORDER LIMIT | ❌ NO TRADE / INVALIDATED.
 
 7. Before any FX order limit, note the advisory exposure check: `run_gate` has no `fx_exposure`
    entry today — if one exists by the time you run this, call it; otherwise note the gap in the
@@ -51,7 +54,10 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
 
 ## After all instruments
 
-8. **git add + commit + push** on the `live` branch — one commit for the whole hourly pass.
+8. **git (optional backup only)** — Postgres is canonical for numbers (step 5) and words (step 6),
+   so the pass is durable without git. If a git mirror is still maintained, one commit on `live`;
+   otherwise skip.
 
-If step 5's MCP write succeeds but git fails in step 8: do **not** re-call with a new `run_id`.
-Reuse the same `run_id`, fix git, then run `python src/engine/scripts/ops/reconcile_db_git.py`.
+If step 5/6's MCP write succeeds but a later step fails: do **not** re-call `write_verdict`/
+`write_trade_log` with a new `run_id`. Reuse the same `run_id`; `write_doc` already versioned the
+prior body into `doc_history`.

@@ -264,6 +264,84 @@ CREATE TABLE IF NOT EXISTS trigger_state (
   updated_utc timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Phase 1: wiki prose → DB (MCP-served context; retires wiki/*.md as canonical).
+-- "Postgres = canonical for every number" now extends to words. Split by TYPE so
+-- each doc kind has its own lifecycle/keys; doc_history keeps the version trail
+-- that leaving git files would otherwise lose.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Human-authored reference rules (rarely change): constitution, setup_library,
+-- currency_exposure, per-instrument profile + confluence_criteria, templates.
+CREATE TABLE IF NOT EXISTS rulebook (
+  doc_key text PRIMARY KEY,          -- 'constitution' | 'xauusd/profile' | 'xauusd/confluence' | 'template/weekly'
+  scope text NOT NULL,               -- 'system' | 'instrument'
+  instrument text,                   -- null for system scope
+  kind text NOT NULL,                -- constitution|setup|currency|profile|confluence|template
+  title text,
+  body text NOT NULL,
+  frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source_path text,
+  version int NOT NULL DEFAULT 1,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_rulebook_kind_instrument ON rulebook (kind, instrument);
+
+-- Regenerated snapshots (rewritten periodically by the pipeline / /weekly):
+-- yield_environment (macro baseline), calibration (edge performance).
+CREATE TABLE IF NOT EXISTS context_doc (
+  doc_key text PRIMARY KEY,          -- 'yield_environment' | 'calibration'
+  kind text NOT NULL,                -- macro | calibration
+  title text,
+  body text NOT NULL,
+  frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source_path text,
+  version int NOT NULL DEFAULT 1,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+
+-- Weekly forecast prose (numbers already in zone_ledger; this is the words).
+CREATE TABLE IF NOT EXISTS forecast_doc (
+  doc_key text PRIMARY KEY,          -- '{week}/{instrument}' e.g. '2026-W27/xauusd'
+  instrument text NOT NULL,
+  week text NOT NULL,
+  title text,
+  body text NOT NULL,
+  frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+  generated date,
+  source_path text,
+  version int NOT NULL DEFAULT 1,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_forecast_doc_instrument_week ON forecast_doc (instrument, week);
+
+-- Daily/hourly validation prose (numbers already in validation_verdict).
+CREATE TABLE IF NOT EXISTS validation_doc (
+  doc_key text PRIMARY KEY,          -- '{date}/{instrument}' e.g. '2026-07-05/xauusd'
+  instrument text NOT NULL,
+  valid_date date NOT NULL,
+  week text,
+  title text,
+  body text NOT NULL,
+  frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source_path text,
+  version int NOT NULL DEFAULT 1,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_validation_doc_instrument_date ON validation_doc (instrument, valid_date);
+
+-- Version trail across all four doc tables — replaces the git blame/diff you lose
+-- by no longer keeping the .md files. write_doc archives the prior row here.
+CREATE TABLE IF NOT EXISTS doc_history (
+  source_table text NOT NULL,        -- 'rulebook' | 'context_doc' | 'forecast_doc' | 'validation_doc'
+  doc_key text NOT NULL,
+  version int NOT NULL,
+  body text NOT NULL,
+  frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+  saved_utc timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (source_table, doc_key, version)
+);
+
 CREATE TABLE IF NOT EXISTS routine_checkpoint (
   routine_name text PRIMARY KEY,
   status text NOT NULL,

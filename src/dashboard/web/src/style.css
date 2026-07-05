@@ -61,3 +61,19 @@ tr:hover td { background: var(--panel-2); }
 .err { color: var(--neg); }
 
 footer { color: var(--muted); text-align: center; font-size: 11px; margin-top: 20px; }
+
+/* Docs browser (wiki → DB) */
+.docs-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.docs-tab { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; }
+.docs-tab.active { color: var(--fg); border-color: var(--accent, #4a90d9); }
+.docs-body { display: grid; grid-template-columns: minmax(260px, 38%) 1fr; gap: 12px; }
+.docs-list { max-height: 460px; overflow: auto; }
+.docs-link { color: var(--accent, #4a90d9); cursor: pointer; text-decoration: none; }
+.docs-link:hover { text-decoration: underline; }
+.docs-view { min-width: 0; }
+.docs-view-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.docs-md { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 460px; overflow: auto; }
+@media (max-width: 780px) { .docs-body { grid-template-columns: 1fr; } }

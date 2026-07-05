@@ -50,3 +50,11 @@ export interface Pnl {
   by_instrument: Row[];
   recent: Row[];
 }
+
+// Fetch a single prose doc's full body on demand (not polled).
+export async function getDoc(docType: string, key: string): Promise<Row | null> {
+  const res = await fetch(`/api/doc?type=${encodeURIComponent(docType)}&key=${encodeURIComponent(key)}`);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || "doc fetch failed");
+  return json.data as Row | null;
+}

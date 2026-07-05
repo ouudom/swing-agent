@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0")
 PORT = int(os.getenv("DASHBOARD_PORT", "8888"))
@@ -170,6 +170,39 @@ def api_calibration():
     }
 
 
+def api_docs():
+    # Unified metadata (no body) across the four prose tables (Phase 1).
+    return query(
+        """
+        SELECT 'rulebook' AS doc_type, doc_key, kind, instrument, NULL::text AS week,
+               title, version, updated_utc FROM rulebook
+        UNION ALL
+        SELECT 'context', doc_key, kind, NULL, NULL, title, version, updated_utc FROM context_doc
+        UNION ALL
+        SELECT 'forecast', doc_key, 'forecast', instrument, week, title, version, updated_utc FROM forecast_doc
+        UNION ALL
+        SELECT 'validation', doc_key, 'validation', instrument, week, title, version, updated_utc FROM validation_doc
+        ORDER BY doc_type, doc_key
+        """
+    )
+
+
+DOC_TABLE = {
+    "rulebook": "rulebook",
+    "context": "context_doc",
+    "forecast": "forecast_doc",
+    "validation": "validation_doc",
+}
+
+
+def api_doc(doc_type: str, key: str):
+    table = DOC_TABLE.get(doc_type)
+    if not table:
+        raise ValueError(f"unknown doc_type: {doc_type}")
+    rows = query(f"SELECT * FROM {table} WHERE doc_key = %s", (key,))
+    return rows[0] if rows else None
+
+
 API = {
     "/api/health": api_health,
     "/api/zones": api_zones,
@@ -177,6 +210,7 @@ API = {
     "/api/validations": api_validations,
     "/api/pipeline": api_pipeline,
     "/api/calibration": api_calibration,
+    "/api/docs": api_docs,
 }
 
 
@@ -211,9 +245,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/health":
             return self._json(HTTPStatus.OK, {"ok": True, "time": utc_now()})
+        if path == "/api/doc":
+            qs = parse_qs(parsed.query)
+            try:
+                data = api_doc((qs.get("type") or [""])[0], (qs.get("key") or [""])[0])
+                return self._json(HTTPStatus.OK, {"ok": True, "data": data})
+            except Exception as exc:
+                return self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "error": str(exc), "trace": traceback.format_exc(limit=3)},
+                )
         if path in API:
             try:
                 return self._json(HTTPStatus.OK, {"ok": True, "data": API[path]()})

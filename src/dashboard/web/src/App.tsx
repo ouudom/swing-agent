@@ -1,4 +1,5 @@
-import { Health, Pnl, Row, usePoll } from "./api";
+import { useState } from "react";
+import { Health, Pnl, Row, usePoll, getDoc } from "./api";
 import { Section, Table, Pill, fmtNum, fmtTime, ageMinutes } from "./ui";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -8,6 +9,7 @@ export function App() {
   const pnl = usePoll<Pnl>("/api/pnl", 60000);
   const validations = usePoll<Row[]>("/api/validations", 45000);
   const pipeline = usePoll<Row[]>("/api/pipeline", 30000);
+  const docs = usePoll<Row[]>("/api/docs", 60000);
 
   return (
     <div className="app">
@@ -101,7 +103,80 @@ export function App() {
         )}
       </Section>
 
+      <Section title="Docs (wiki → DB)" right={<Muted n={docs.data?.length} />}>
+        {docs.error ? <Err msg={docs.error} /> : <DocsPanel rows={docs.data ?? []} />}
+      </Section>
+
       <footer>read-only · polls every 30–60s · Postgres-backed</footer>
+    </div>
+  );
+}
+
+function DocsPanel({ rows }: { rows: Row[] }) {
+  const [filter, setFilter] = useState<string>("all");
+  const [sel, setSel] = useState<Row | null>(null);
+  const [body, setBody] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+
+  const types = ["all", ...Array.from(new Set(rows.map((r) => String(r.doc_type))))];
+  const shown = filter === "all" ? rows : rows.filter((r) => String(r.doc_type) === filter);
+
+  async function open(r: Row) {
+    setSel(r);
+    setBusy(true);
+    setBody("");
+    try {
+      const d = await getDoc(String(r.doc_type), String(r.doc_key));
+      setBody(d ? String(d.body ?? "") : "(not found)");
+    } catch (e) {
+      setBody(e instanceof Error ? `⚠ ${e.message}` : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!rows.length) return <p className="empty">No docs imported yet — run import_wiki_to_doc.py.</p>;
+
+  return (
+    <div className="docs">
+      <div className="docs-tabs">
+        {types.map((t) => (
+          <button
+            key={t}
+            className={`docs-tab${filter === t ? " active" : ""}`}
+            onClick={() => setFilter(t)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className="docs-body">
+        <div className="docs-list">
+          <Table
+            rows={shown}
+            cols={[
+              ["doc_type", "Type"],
+              ["doc_key", "Key", (v, row) => (
+                <a className="docs-link" onClick={() => open(row)}>{String(v)}</a>
+              )],
+              ["updated_utc", "Updated", (v) => fmtTime(v)],
+            ]}
+          />
+        </div>
+        <div className="docs-view">
+          {sel ? (
+            <>
+              <div className="docs-view-head">
+                <b>{String(sel.title || sel.doc_key)}</b>
+                <span className="muted">{String(sel.doc_type)} · {String(sel.doc_key)} · v{String(sel.version)}</span>
+              </div>
+              <pre className="docs-md">{busy ? "loading…" : body}</pre>
+            </>
+          ) : (
+            <p className="empty">Select a doc to view its body.</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

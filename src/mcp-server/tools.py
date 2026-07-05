@@ -607,9 +607,172 @@ def update_checkpoint(
     return rows[0] if rows else None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Docs — wiki prose served from Postgres (Phase 1). Four tables, split by type;
+# `doc_type` selects which. write_doc versions the prior row into doc_history.
+# ─────────────────────────────────────────────────────────────────────────────
+
+DOC_TABLES = {
+    "rulebook": {
+        "table": "rulebook",
+        "cols": ["doc_key", "scope", "instrument", "kind", "title", "body", "frontmatter", "source_path"],
+        "list_extra": ["scope", "instrument", "kind"],
+    },
+    "context": {
+        "table": "context_doc",
+        "cols": ["doc_key", "kind", "title", "body", "frontmatter", "source_path"],
+        "list_extra": ["kind"],
+    },
+    "forecast": {
+        "table": "forecast_doc",
+        "cols": ["doc_key", "instrument", "week", "title", "body", "frontmatter", "generated", "source_path"],
+        "list_extra": ["instrument", "week", "generated"],
+    },
+    "validation": {
+        "table": "validation_doc",
+        "cols": ["doc_key", "instrument", "valid_date", "week", "title", "body", "frontmatter", "source_path"],
+        "list_extra": ["instrument", "valid_date", "week"],
+    },
+}
+
+
+def _doc_spec(doc_type: str):
+    spec = DOC_TABLES.get(doc_type)
+    if not spec:
+        raise ValueError(f"unknown doc_type: {doc_type} (one of {sorted(DOC_TABLES)})")
+    return spec
+
+
+def get_doc(doc_type: str, key: str):
+    """Read one prose doc from Postgres. doc_type ∈ rulebook|context|forecast|validation.
+    key is the doc_key (e.g. 'constitution', 'xauusd/confluence', '2026-W27/xauusd',
+    '2026-07-05/xauusd')."""
+    spec = _doc_spec(doc_type)
+    rows = query(f"SELECT * FROM {spec['table']} WHERE doc_key = %s", (key,), row_cap=1)["rows"]
+    return rows[0] if rows else None
+
+
+def list_docs(
+    doc_type: str,
+    instrument: str | None = None,
+    week: str | None = None,
+    kind: str | None = None,
+):
+    """List prose docs (metadata only, no body) for a doc_type, newest first."""
+    spec = _doc_spec(doc_type)
+    meta = [c for c in spec["cols"] if c not in {"body", "frontmatter"}] + ["version", "updated_utc"]
+    where, params = [], []
+    if instrument and "instrument" in spec["cols"]:
+        where.append("instrument = %s")
+        params.append(instrument.lower())
+    if week and "week" in spec["cols"]:
+        where.append("week = %s")
+        params.append(week)
+    if kind and "kind" in spec["cols"]:
+        where.append("kind = %s")
+        params.append(kind)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    return query(
+        f"SELECT {', '.join(meta)} FROM {spec['table']} {clause} ORDER BY updated_utc DESC",
+        tuple(params),
+    )
+
+
+def write_doc(
+    doc_type: str,
+    key: str,
+    body: str,
+    title: str | None = None,
+    scope: str | None = None,
+    instrument: str | None = None,
+    kind: str | None = None,
+    week: str | None = None,
+    valid_date: str | None = None,
+    generated: str | None = None,
+    frontmatter: dict | None = None,
+    source_path: str | None = None,
+):
+    """Upsert a prose doc into Postgres (Phase 1 — replaces writing wiki/*.md).
+    Archives the prior row into doc_history and bumps version. Only the columns
+    that exist on the target table are written; the rest are ignored."""
+    spec = _doc_spec(doc_type)
+    table = spec["table"]
+    if not body or not body.strip():
+        raise ValueError("body is required")
+
+    prev = query(
+        f"SELECT version, body, frontmatter FROM {table} WHERE doc_key = %s", (key,), row_cap=1
+    )["rows"]
+    version = 1
+    if prev:
+        version = int(prev[0]["version"]) + 1
+        execute(
+            "INSERT INTO doc_history (source_table, doc_key, version, body, frontmatter) "
+            "VALUES (%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING",
+            (table, key, prev[0]["version"], prev[0]["body"], _clean_payload(prev[0]["frontmatter"])),
+        )
+
+    supplied = {
+        "doc_key": key,
+        "scope": scope,
+        "instrument": instrument.lower() if instrument else None,
+        "kind": kind,
+        "title": title,
+        "body": body,
+        "week": week,
+        "valid_date": valid_date,
+        "generated": generated,
+        "source_path": source_path,
+    }
+    cols = [c for c in spec["cols"] if c != "frontmatter"]
+    has_fm = "frontmatter" in spec["cols"]
+    values = [supplied.get(c) for c in cols]
+    for c in cols:
+        if c in ("scope", "kind") and supplied.get(c) is None and prev is None:
+            # required-ish on first insert; default sensibly rather than NULL-fail
+            values[cols.index(c)] = "system" if c == "scope" else doc_type
+
+    insert_cols = cols + (["frontmatter"] if has_fm else []) + ["version", "updated_utc"]
+    placeholders = ["%s"] * len(cols) + (["%s::jsonb"] if has_fm else []) + ["%s", "now()"]
+    row_vals = list(values) + ([_clean_payload(frontmatter)] if has_fm else []) + [version]
+    update_cols = [c for c in cols if c != "doc_key"] + (["frontmatter"] if has_fm else []) + ["version"]
+    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols) + ", updated_utc = now()"
+
+    rows = execute(
+        f"INSERT INTO {table} ({', '.join(insert_cols)}) VALUES ({', '.join(placeholders)}) "
+        f"ON CONFLICT (doc_key) DO UPDATE SET {set_clause} RETURNING *",
+        tuple(row_vals),
+    )
+    return {"doc": rows[0] if rows else None, "version": version, "table": table}
+
+
+def get_context_pack(instrument: str):
+    """One-call boot context for /weekly and /validate: the rulebook rules the
+    routine needs (constitution, setup, currency, this instrument's profile +
+    confluence) plus the current macro + calibration snapshots — bodies included.
+    Lets a fresh cloud routine load full judgment context via MCP, no git checkout."""
+    inst = instrument.lower()
+    rule = query(
+        "SELECT doc_key, kind, title, body FROM rulebook "
+        "WHERE scope = 'system' OR instrument = %s ORDER BY scope, kind",
+        (inst,),
+    )
+    ctx = query("SELECT doc_key, kind, title, body FROM context_doc ORDER BY kind")
+    return {
+        "instrument": inst,
+        "generated_utc": utc_now(),
+        "rulebook": rule["rows"],
+        "context": ctx["rows"],
+    }
+
+
 TOOLS = {
     "sql_query": sql_query,
     "get_brief": get_brief,
+    "get_doc": get_doc,
+    "list_docs": list_docs,
+    "write_doc": write_doc,
+    "get_context_pack": get_context_pack,
     "get_news": get_news,
     "get_econ": get_econ,
     "get_calibration": get_calibration,

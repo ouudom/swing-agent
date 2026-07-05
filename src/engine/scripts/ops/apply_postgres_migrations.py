@@ -91,6 +91,75 @@ DDL = [
       updated_utc timestamptz NOT NULL DEFAULT now()
     )
     """,
+    # Phase 1: wiki prose → DB. Split by type; doc_history keeps the version trail.
+    """
+    CREATE TABLE IF NOT EXISTS rulebook (
+      doc_key text PRIMARY KEY,
+      scope text NOT NULL,
+      instrument text,
+      kind text NOT NULL,
+      title text,
+      body text NOT NULL,
+      frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+      source_path text,
+      version int NOT NULL DEFAULT 1,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_rulebook_kind_instrument ON rulebook (kind, instrument)",
+    """
+    CREATE TABLE IF NOT EXISTS context_doc (
+      doc_key text PRIMARY KEY,
+      kind text NOT NULL,
+      title text,
+      body text NOT NULL,
+      frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+      source_path text,
+      version int NOT NULL DEFAULT 1,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS forecast_doc (
+      doc_key text PRIMARY KEY,
+      instrument text NOT NULL,
+      week text NOT NULL,
+      title text,
+      body text NOT NULL,
+      frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+      generated date,
+      source_path text,
+      version int NOT NULL DEFAULT 1,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_forecast_doc_instrument_week ON forecast_doc (instrument, week)",
+    """
+    CREATE TABLE IF NOT EXISTS validation_doc (
+      doc_key text PRIMARY KEY,
+      instrument text NOT NULL,
+      valid_date date NOT NULL,
+      week text,
+      title text,
+      body text NOT NULL,
+      frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+      source_path text,
+      version int NOT NULL DEFAULT 1,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_validation_doc_instrument_date ON validation_doc (instrument, valid_date)",
+    """
+    CREATE TABLE IF NOT EXISTS doc_history (
+      source_table text NOT NULL,
+      doc_key text NOT NULL,
+      version int NOT NULL,
+      body text NOT NULL,
+      frontmatter jsonb NOT NULL DEFAULT '{}'::jsonb,
+      saved_utc timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (source_table, doc_key, version)
+    )
+    """,
 ]
 
 

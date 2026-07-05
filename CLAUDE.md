@@ -21,13 +21,28 @@ history, full `wiki/`, `scripts/`) when working here. `swing-agent/` is what dep
 - **`src/`** — the deployed app: deterministic pipeline scripts, Postgres schema, scheduler,
   the native MCP server. The container never reads a `.md`; it runs on Postgres + config only.
 
-## Storage Split (non-negotiable)
+## Storage Split (Phase 1 — Postgres now canonical for words too)
 **Postgres = canonical for every number** (OHLC, zones, outcomes, calibration, news, econ
-calendar). **`wiki/` = canonical for every word** (rules, forecasts, validations). Never store
-a derived number in `wiki/` — recompute it via MCP each time.
+calendar) **and, since Phase 1, for every word** — rules, forecasts, validations now live in
+four DB tables served over MCP, not in `wiki/*.md`:
+- `rulebook` — constitution, setup_library, currency_exposure, per-instrument profile +
+  confluence_criteria, templates (human-authored reference).
+- `context_doc` — regenerated snapshots: `yield_environment` (macro), `calibration`.
+- `forecast_doc` — weekly forecast prose (key `{YYYY-WNN}/{instrument}`).
+- `validation_doc` — validation prose (key `{YYYY-MM-DD}/{instrument}`).
+- `doc_history` — prior versions (replaces the git blame lost by leaving files).
+
+Read via `get_context_pack(instrument)` (boot bundle) / `get_doc(doc_type,key)` / `list_docs(...)`;
+write via `write_doc(...)`. A fresh cloud routine gets full judgment context from MCP alone — no
+git checkout needed, so local `/weekly` md is no longer a prerequisite for cloud `/validate`.
+Still never store a derived number in a doc body — recompute via MCP each time.
+
+`wiki/*.md` is now a legacy mirror (migrate once with `import_wiki_to_doc.py`); it can be deleted
+after the DB import is verified. `src/database/init.sql` + `apply_postgres_migrations.py` create
+the tables.
 
 ## MCP — your only gateway to the app
-One transport, 15 tools, one Postgres backend:
+One transport, 20 tools, one Postgres backend:
 - `mcp-native` (native MCP, Streamable HTTP, port 8766, `/mcp` endpoint) — register via
   `claude mcp add --transport http swing-agent http://<host>:8766/mcp --header
   "Authorization: Bearer $MCP_AUTH_TOKEN"`.
@@ -37,7 +52,9 @@ structure/momentum/macro/ATR+SL/COT; replaces the old weekly_pull txt), `sql_que
 (read-only SELECT/WITH/SHOW only), `get_news`, `get_econ`, `get_calibration`,
 `compute_indicators`, `run_gate`, `run_replay`, `run_calibration`,
 `run_backtest` (allowlisted scripts + args only) — data/compute, read-only or sandboxed.
-`publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint` — structured writes,
+`get_context_pack`, `get_doc`, `list_docs` — prose docs (rules/forecasts/validations) read from DB.
+`write_doc` — upsert a prose doc (versions prior into `doc_history`).
+`publish_zone`, `write_verdict`, `write_trade_log`, `queue_notification`, `update_checkpoint` — structured writes,
 idempotent (upsert on natural key). **`write_verdict` hard-rejects `ORDER_LIMIT` if
 `hard_block_flags` is non-empty or `entry_confluence < 5.0`** — the gate is enforced server-side,
 not by your judgment alone.

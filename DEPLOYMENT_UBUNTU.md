@@ -165,8 +165,9 @@ fallback in `BearerAuth`, `src/mcp-server/server_mcp.py`):
 https://<host-or-tunnel>/mcp?token=<MCP_AUTH_TOKEN>
 ```
 
-All 16 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
+All 20 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
 `run_calibration`, `get_news`, `get_econ`, `get_calibration`, `compute_indicators`,
+`get_doc`, `list_docs`, `write_doc`, `get_context_pack`,
 `publish_zone`, `write_verdict`, `write_trade_log`, `queue_notification`, `update_checkpoint`) then
 appear in Claude Code with schemas auto-derived from the Python signatures.
 
