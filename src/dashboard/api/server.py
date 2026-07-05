@@ -88,8 +88,199 @@ def api_health():
             "UNION ALL SELECT 'news', MAX(datetime_utc) FROM news "
             "UNION ALL SELECT 'econ_calendar', MAX(date)::timestamptz FROM econ_calendar"
         ),
+        # Per-instrument OHLC freshness — a single stale pair hides behind the global MAX.
+        "ohlc_freshness": query(
+            "SELECT symbol, tf, MAX(datetime) AS latest, COUNT(*) AS bars "
+            "FROM ohlc GROUP BY symbol, tf ORDER BY symbol, tf"
+        ),
         "server_time": utc_now(),
     }
+
+
+def api_trades():
+    # Live order book (real trade_log, distinct from the replay in trade_outcome).
+    return query(
+        "SELECT zone_id, instrument, week, label, direction, status, entry_confluence, "
+        "limit_price, sl_price, tp_price, entry_price, fill_time, exit_price, exit_time, "
+        "r_result, hard_block_flags, reason, validation_date, updated_utc "
+        "FROM trade_log ORDER BY "
+        "CASE status WHEN 'FILLED' THEN 0 WHEN 'PENDING' THEN 1 ELSE 2 END, "
+        "updated_utc DESC LIMIT 100"
+    )
+
+
+def api_notifications():
+    counts = query(
+        "SELECT status, COUNT(*) AS n FROM notification_event GROUP BY status ORDER BY status"
+    )
+    recent = query(
+        "SELECT event_id, event_type, instrument, zone_id, title, message, status, "
+        "created_utc, sent_utc, error FROM notification_event "
+        "ORDER BY created_utc DESC LIMIT 40"
+    )
+    return {"counts": counts, "recent": recent}
+
+
+def api_gates():
+    return {
+        # Upcoming CB decisions — flatten the jsonb dates array, keep future-ish rows.
+        "cb": query(
+            "SELECT bank_code, name, hard_block, caution, time_note, "
+            "(d->>'date')::date AS decision_date, d->>'status' AS decision_status "
+            "FROM cb_calendar, jsonb_array_elements(dates) AS d "
+            "WHERE (d->>'date')::date >= (now() AT TIME ZONE 'utc')::date - 2 "
+            "ORDER BY decision_date LIMIT 30"
+        ),
+        # High-impact econ this week + next.
+        "econ": query(
+            "SELECT date, time_utc, country, event, impact, estimate, actual, prev "
+            "FROM econ_calendar WHERE date >= (now() AT TIME ZONE 'utc')::date - 1 "
+            "AND date <= (now() AT TIME ZONE 'utc')::date + 9 "
+            "AND upper(coalesce(impact,'')) IN ('HIGH','MEDIUM') "
+            "ORDER BY date, time_utc LIMIT 60"
+        ),
+        # JPY intervention watch — spot-vs-level gate.
+        "intervention": query(
+            "SELECT pair, intervention_level, caution_band, regime, verified_through "
+            "FROM intervention_watch ORDER BY pair"
+        ),
+    }
+
+
+def api_ohlc(symbol: str, tf: str):
+    rows = query(
+        "SELECT datetime, open, high, low, close, volume FROM ohlc "
+        "WHERE symbol = %s AND tf = %s ORDER BY datetime DESC LIMIT 300",
+        (symbol, tf),
+    )
+    rows.reverse()  # chronological for the candlestick
+    # Zones for this instrument to overlay (band + limit/invalidation/tp lines).
+    zones = query(
+        "SELECT zone_id, week, label, direction, zone_bottom, zone_top, status, "
+        "limit_price, invalidation_level, tp_anchor, published_utc "
+        "FROM zone_ledger WHERE instrument = %s ORDER BY published_utc DESC LIMIT 12",
+        (symbol,),
+    )
+    return {"symbol": symbol, "tf": tf, "bars": rows, "zones": zones}
+
+
+def api_symbols():
+    return query("SELECT DISTINCT symbol, tf FROM ohlc ORDER BY symbol, tf")
+
+
+def api_quarantine():
+    return query(
+        "SELECT symbol, tf, datetime, action, open, high, low, close, ref_close, flagged_utc "
+        "FROM ohlc_quarantine ORDER BY flagged_utc DESC NULLS LAST, datetime DESC LIMIT 100"
+    )
+
+
+def api_equity():
+    # Cumulative R over time — the running equity curve.
+    return query(
+        "SELECT zone_id, instrument, direction, exit_time, r_result, "
+        "SUM(r_result) OVER (ORDER BY exit_time, resolved_utc) AS cum_r "
+        "FROM trade_outcome WHERE r_result IS NOT NULL AND exit_time IS NOT NULL "
+        "ORDER BY exit_time, resolved_utc"
+    )
+
+
+def api_buckets():
+    ec = query(
+        "SELECT CASE WHEN ec_score < 5 THEN '0 <5' WHEN ec_score < 6 THEN '1 5-6' "
+        "WHEN ec_score < 7 THEN '2 6-7' WHEN ec_score < 8 THEN '3 7-8' ELSE '4 8+' END AS bucket, "
+        "COUNT(*) AS n, COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
+        "FROM trade_outcome WHERE r_result IS NOT NULL GROUP BY 1 ORDER BY 1"
+    )
+    r1 = query(
+        "SELECT CASE WHEN zone_confluence < 6 THEN '0 <6' WHEN zone_confluence < 7 THEN '1 6-7' "
+        "WHEN zone_confluence < 8 THEN '2 7-8' WHEN zone_confluence < 9 THEN '3 8-9' ELSE '4 9+' END AS bucket, "
+        "COUNT(*) AS n, COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
+        "FROM trade_outcome WHERE r_result IS NOT NULL GROUP BY 1 ORDER BY 1"
+    )
+    conviction = query(
+        "SELECT conviction, COUNT(*) AS n, COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
+        "FROM trade_outcome WHERE r_result IS NOT NULL GROUP BY conviction ORDER BY conviction"
+    )
+    # Gate-accuracy audit — was blocking correct? block_verdict summarises it.
+    gate = query(
+        "SELECT block_verdict, block_flags, COUNT(*) AS n, AVG(r_result) AS avg_r "
+        "FROM trade_outcome WHERE block_verdict IS NOT NULL "
+        "GROUP BY block_verdict, block_flags ORDER BY n DESC LIMIT 30"
+    )
+    # MFE/MAE scatter — are wins capped early, losses run?
+    scatter = query(
+        "SELECT zone_id, instrument, direction, ec_score, mfe_r, mae_r, r_result "
+        "FROM trade_outcome WHERE r_result IS NOT NULL AND mfe_r IS NOT NULL "
+        "ORDER BY exit_time DESC LIMIT 300"
+    )
+    return {"ec": ec, "r1": r1, "conviction": conviction, "gate": gate, "scatter": scatter}
+
+
+def api_macro():
+    return {
+        "yield_env": (query("SELECT title, body, updated_utc FROM context_doc WHERE doc_key = 'yield_environment'") or [None])[0],
+        "macro_series": query(
+            "SELECT series_id, date, value FROM macro_series "
+            "WHERE date >= (now() AT TIME ZONE 'utc')::date - 400 ORDER BY series_id, date"
+        ),
+        "market_series": query(
+            "SELECT source, symbol, date, value FROM market_series "
+            "WHERE date >= (now() AT TIME ZONE 'utc')::date - 400 ORDER BY symbol, date"
+        ),
+        "cot": query(
+            "SELECT contract, date, long, short, net, net_prev FROM cot "
+            "WHERE date >= (now() AT TIME ZONE 'utc')::date - 400 ORDER BY contract, date"
+        ),
+        "gld": query(
+            "SELECT date, tonnes, aum_usd, spot FROM gld_holdings "
+            "WHERE date >= (now() AT TIME ZONE 'utc')::date - 400 ORDER BY date"
+        ),
+    }
+
+
+def api_news(instrument: str = ""):
+    if instrument:
+        return query(
+            "SELECT datetime_utc, category, headline, source, url, summary, related "
+            "FROM news WHERE related ILIKE %s OR headline ILIKE %s "
+            "ORDER BY datetime_utc DESC LIMIT 60",
+            (f"%{instrument}%", f"%{instrument}%"),
+        )
+    return query(
+        "SELECT datetime_utc, category, headline, source, url, summary, related "
+        "FROM news ORDER BY datetime_utc DESC LIMIT 60"
+    )
+
+
+def api_config():
+    return {
+        "cb_calendar": query(
+            "SELECT bank_code, name, time_note, hard_block, caution, dates, verified_through, updated_utc "
+            "FROM cb_calendar ORDER BY bank_code"
+        ),
+        "intervention_watch": query(
+            "SELECT pair, intervention_level, caution_band, regime, verified_through, updated_utc "
+            "FROM intervention_watch ORDER BY pair"
+        ),
+        "jawboning": query(
+            "SELECT pair, event_date, official, quote, source, created_utc "
+            "FROM intervention_jawboning ORDER BY event_date DESC LIMIT 40"
+        ),
+    }
+
+
+def api_doc_history(doc_type: str, key: str):
+    table = DOC_TABLE.get(doc_type)
+    source_table = {"context": "context_doc"}.get(doc_type, table)
+    return query(
+        "SELECT source_table, doc_key, version, saved_utc FROM doc_history "
+        "WHERE source_table = %s AND doc_key = %s ORDER BY version DESC",
+        (source_table, key),
+    )
 
 
 def api_zones():
@@ -211,6 +402,30 @@ API = {
     "/api/pipeline": api_pipeline,
     "/api/calibration": api_calibration,
     "/api/docs": api_docs,
+    # Tab: Dashboard
+    "/api/trades": api_trades,
+    "/api/notifications": api_notifications,
+    "/api/gates": api_gates,
+    # Tab: Charts
+    "/api/symbols": api_symbols,
+    "/api/quarantine": api_quarantine,
+    # Tab: Performance
+    "/api/equity": api_equity,
+    "/api/buckets": api_buckets,
+    # Tab: Macro
+    "/api/macro": api_macro,
+    "/api/config": api_config,
+}
+
+# Endpoints that take query params — dispatched in do_GET (parse then call).
+def _q(qs: dict, name: str, default: str = "") -> str:
+    return (qs.get(name) or [default])[0]
+
+
+QUERY_API = {
+    "/api/ohlc": lambda qs: api_ohlc(_q(qs, "symbol"), _q(qs, "tf", "1day")),
+    "/api/news": lambda qs: api_news(_q(qs, "instrument")),
+    "/api/doc-history": lambda qs: api_doc_history(_q(qs, "type"), _q(qs, "key")),
 }
 
 
@@ -254,6 +469,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 data = api_doc((qs.get("type") or [""])[0], (qs.get("key") or [""])[0])
                 return self._json(HTTPStatus.OK, {"ok": True, "data": data})
+            except Exception as exc:
+                return self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "error": str(exc), "trace": traceback.format_exc(limit=3)},
+                )
+        if path in QUERY_API:
+            qs = parse_qs(parsed.query)
+            try:
+                return self._json(HTTPStatus.OK, {"ok": True, "data": QUERY_API[path](qs)})
             except Exception as exc:
                 return self._json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,

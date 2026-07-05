@@ -33,6 +33,79 @@ export function Section({ title, children, right }: { title: string; children: R
   );
 }
 
+// Tab nav bar. `tabs` = [key, label]. Controlled by `active`/`onChange`.
+export function TabNav({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: [string, string][];
+  active: string;
+  onChange: (k: string) => void;
+}) {
+  return (
+    <nav className="tabs">
+      {tabs.map(([k, label]) => (
+        <button
+          key={k}
+          className={`tab${active === k ? " active" : ""}`}
+          onClick={() => onChange(k)}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// Big-number hero card for KPI rows.
+export function Kpi({
+  label,
+  value,
+  tone,
+  sub,
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: "pos" | "neg" | "";
+  sub?: ReactNode;
+}) {
+  return (
+    <div className="kpi">
+      <div className="kpi-label">{label}</div>
+      <div className={`kpi-value ${tone ?? ""}`}>{value}</div>
+      {sub != null && <div className="kpi-sub">{sub}</div>}
+    </div>
+  );
+}
+
+export function Skeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="skeleton">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div className="skeleton-row" key={i} />
+      ))}
+    </div>
+  );
+}
+
+// Age → tone (fresh/warn/stale). thresholds in minutes.
+export function freshTone(v: unknown, warnMin = 180, staleMin = 60 * 24): "ok" | "warn" | "bad" | "muted" {
+  const a = ageMinutes(v);
+  if (a === null) return "muted";
+  if (a > staleMin) return "bad";
+  if (a > warnMin) return "warn";
+  return "ok";
+}
+
+export function fmtAge(v: unknown): string {
+  const a = ageMinutes(v);
+  if (a === null) return "never";
+  if (a < 90) return `${Math.round(a)}m`;
+  if (a < 60 * 48) return `${Math.round(a / 60)}h`;
+  return `${Math.round(a / 1440)}d`;
+}
+
 export function Pill({ tone, children }: { tone: "ok" | "warn" | "bad" | "muted"; children: ReactNode }) {
   return <span className={`pill pill-${tone}`}>{children}</span>;
 }

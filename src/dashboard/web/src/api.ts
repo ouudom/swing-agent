@@ -43,12 +43,56 @@ export interface Health {
   routines: Row[];
   jobs: Row[];
   data_freshness: Row[];
+  ohlc_freshness: Row[];
   server_time: string;
 }
 export interface Pnl {
   overall: Row;
   by_instrument: Row[];
   recent: Row[];
+}
+export interface Notifications {
+  counts: Row[];
+  recent: Row[];
+}
+export interface Gates {
+  cb: Row[];
+  econ: Row[];
+  intervention: Row[];
+}
+export interface Ohlc {
+  symbol: string;
+  tf: string;
+  bars: Row[];
+  zones: Row[];
+}
+export interface Buckets {
+  ec: Row[];
+  r1: Row[];
+  conviction: Row[];
+  gate: Row[];
+  scatter: Row[];
+}
+export interface Macro {
+  yield_env: Row | null;
+  macro_series: Row[];
+  market_series: Row[];
+  cot: Row[];
+  gld: Row[];
+}
+export interface Config {
+  cb_calendar: Row[];
+  intervention_watch: Row[];
+  jawboning: Row[];
+}
+
+// One-shot fetch of a param endpoint (not polled) — e.g. /api/ohlc?symbol=&tf=.
+export async function fetchParam<T>(path: string, params: Record<string, string>): Promise<T> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${path}?${qs}`);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || `request failed: ${path}`);
+  return json.data as T;
 }
 
 // Fetch a single prose doc's full body on demand (not polled).
