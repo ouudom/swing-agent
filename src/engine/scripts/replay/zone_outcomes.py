@@ -24,10 +24,13 @@ Shadow-trade model (simplifications, deliberately documented):
   - Manage = TP +3.0R nearer zone / +4.0R further zone (v3 distance-tiered); SL −1R;
              BE: stop → entry after a bar's MFE reaches +1.5R
              (armed from the NEXT bar). Same-bar SL+TP ambiguity → SL (conservative).
-             Trade may run past the forecast week until exit or data end (RUNNING).
+             Walk is bounded to the trade week's market close (Fri 22:00 UTC). If
+             still live (week not yet closed) → RUNNING (interim, re-resolved next
+             run). If the week closed without TP/SL/BE → EXPIRED, marked to market
+             at the last close before week-end.
   - Status = PENDING (week live, no fill yet) | NO_TOUCH | TOUCH_NO_FILL |
-             INVALIDATED | WIN_TP1 | LOSS_SL | BREAKEVEN | RUNNING.
-             Terminal statuses flip the ledger row to RESOLVED.
+             INVALIDATED | WIN_TP1 | LOSS_SL | BREAKEVEN | RUNNING | EXPIRED.
+             Terminal statuses (everything but RUNNING) flip the ledger row to RESOLVED.
 
 Usage:
     bash scripts/pyrun.sh scripts/replay/zone_outcomes.py            # resolve all + summary
@@ -51,7 +54,7 @@ from zone_ledger import load_ledger, save_ledger  # noqa: E402
 
 OUTCOMES_CSV = Path("data/zone_outcomes.csv")
 OUTCOMES_TABLE = "zone_outcome"
-TERMINAL = {"NO_TOUCH", "TOUCH_NO_FILL", "INVALIDATED", "WIN_TP1", "LOSS_SL", "BREAKEVEN"}
+TERMINAL = {"NO_TOUCH", "TOUCH_NO_FILL", "INVALIDATED", "WIN_TP1", "LOSS_SL", "BREAKEVEN", "EXPIRED"}
 
 # v3 distance-tiered TP (matches trade_outcome.py): within each (instrument, week) the zone
 # nearest the week's opening spot targets 3.0R, all others 4.0R. Replaces the flat TP1 2.5R.
@@ -167,7 +170,10 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
     d1_atr = atr14_before(d1, pd.Timestamp(fill_time.date()))
     h4_trade = h4[(h4["high"] - h4["low"]) >= mbr]
     h4_atr = atr14_before(h4_trade, fill_time)
-    if d1_atr is None or h4_atr is None:
+    # pd.isna catches both "too few bars" (None) and a NaN mean from gappy OHLC —
+    # `is None` alone let NaN slip through, silently producing a NaN sl that made
+    # every stop/tp/mfe/mae comparison False and stranded the trade in RUNNING.
+    if pd.isna(d1_atr) or pd.isna(h4_atr):
         out["status"] = "PENDING"
         out["fill_time"] = ""
         return out
@@ -180,7 +186,9 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
     be_armed = False
     mfe = mae = 0.0
 
-    walk = h1[h1["datetime"] >= fill_time]
+    # Bounded to the trade week's market close — an unbounded walk let trades that
+    # never hit TP/SL/BE drift as "RUNNING" for weeks with no way to ever resolve.
+    walk = h1[(h1["datetime"] >= fill_time) & (h1["datetime"] < end)]
     for _, bar in walk.iterrows():
         hi, lo = bar["high"], bar["low"]
         fav = (hi - entry_px) if sign > 0 else (entry_px - lo)
@@ -202,9 +210,15 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
             be_armed = True
             stop = entry_px  # armed; effective next bar (this bar's stop already checked)
     else:
-        out["status"] = "RUNNING"
-        last_close = walk["close"].iloc[-1]
-        out["r_result"] = round(sign * (last_close - entry_px) / sl, 2)
+        last_close = walk["close"].iloc[-1] if len(walk) else entry_px
+        r_mark = round(sign * (last_close - entry_px) / sl, 2)
+        if week_live:
+            out["status"] = "RUNNING"  # interim — re-resolved once the week closes
+            out["r_result"] = r_mark
+        else:
+            out["status"] = "EXPIRED"  # week closed, no TP/SL/BE — mark to market
+            out["r_result"] = r_mark
+            out["exit_time"] = str(walk["datetime"].iloc[-1]) if len(walk) else str(end)
 
     out["mfe_r"], out["mae_r"] = round(mfe, 2), round(mae, 2)
     return out
