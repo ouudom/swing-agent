@@ -124,7 +124,8 @@ th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--bord
 th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
 tr:hover td { background: var(--panel-2); }
 .table-tools, .table-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
-.table-tools input {
+.table-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.table-tools select {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 4px 8px; min-width: 220px; font-size: 12px;
 }

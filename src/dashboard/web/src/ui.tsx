@@ -160,62 +160,89 @@ export function Pill({ tone, children }: { tone: "ok" | "warn" | "bad" | "muted"
 export function Table({
   rows,
   cols,
+  interactive = false,
+  filterKeys = [],
 }: {
   rows: Row[];
   cols: [string, string, ((v: unknown, row: Row) => ReactNode)?][];
+  interactive?: boolean;
+  filterKeys?: string[];
 }) {
   const defaultSort = useMemo(() => {
     const keys = cols.map(([k]) => k);
     return keys.includes("fill_time") ? "fill_time" : "";
   }, [cols]);
-  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const [sortKey, setSortKey] = useState(defaultSort);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const pageSize = 10;
+
+  const filterOptions = useMemo(() => {
+    return Object.fromEntries(filterKeys.map((key) => [
+      key,
+      Array.from(new Set(rows.map((row) => String(row[key] ?? "")).filter(Boolean))).sort(),
+    ]));
+  }, [filterKeys, rows]);
 
   const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filtered = q
-      ? rows.filter((row) => cols.some(([k]) => String(row[k] ?? "").toLowerCase().includes(q)))
+    const filtered = interactive
+      ? rows.filter((row) => Object.entries(filters).every(([key, value]) => !value || String(row[key] ?? "") === value))
       : rows;
-    const sorted = sortKey
+    const sorted = interactive && sortKey
       ? [...filtered].sort((a, b) => compareValues(a[sortKey], b[sortKey], sortDir))
       : filtered;
     return sorted;
-  }, [rows, cols, query, sortKey, sortDir]);
+  }, [rows, filters, interactive, sortKey, sortDir]);
 
   const pages = Math.max(1, Math.ceil(shown.length / pageSize));
   const safePage = Math.min(page, pages);
-  const pageRows = shown.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageRows = interactive ? shown.slice((safePage - 1) * pageSize, safePage * pageSize) : shown;
 
   if (!rows.length) return <p className="empty">No rows.</p>;
   return (
     <>
-      <div className="table-tools">
-        <input
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-          placeholder="Query"
-        />
-        <span className="muted">{shown.length}/{rows.length} rows</span>
-      </div>
+      {interactive ? (
+        <div className="table-tools">
+          <div className="table-filters">
+            {filterKeys.map((key) => {
+              const label = cols.find(([k]) => k === key)?.[1] ?? key;
+              return (
+                <select
+                  key={key}
+                  value={filters[key] ?? ""}
+                  onChange={(e) => {
+                    setFilters((prev) => ({ ...prev, [key]: e.target.value }));
+                    setPage(1);
+                  }}
+                >
+                  <option value="">{label}: All</option>
+                  {(filterOptions[key] ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              );
+            })}
+          </div>
+          <span className="muted">{shown.length}/{rows.length} rows</span>
+        </div>
+      ) : null}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               {cols.map(([k, h]) => (
                 <th key={k}>
-                  <button
-                    className="th-sort"
-                    onClick={() => {
-                      setPage(1);
-                      if (sortKey === k) setSortDir(sortDir === "asc" ? "desc" : "asc");
-                      else { setSortKey(k); setSortDir(k === "fill_time" ? "desc" : "asc"); }
-                    }}
-                  >
-                    {h}{sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
-                  </button>
+                  {interactive ? (
+                    <button
+                      className="th-sort"
+                      onClick={() => {
+                        setPage(1);
+                        if (sortKey === k) setSortDir(sortDir === "asc" ? "desc" : "asc");
+                        else { setSortKey(k); setSortDir(k === "fill_time" ? "desc" : "asc"); }
+                      }}
+                    >
+                      {h}{sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                    </button>
+                  ) : h}
                 </th>
               ))}
             </tr>
@@ -231,11 +258,13 @@ export function Table({
           </tbody>
         </table>
       </div>
-      <div className="table-pager">
-        <button disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
-        <span className="muted">Page {safePage}/{pages}</span>
-        <button disabled={safePage >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}>Next</button>
-      </div>
+      {interactive ? (
+        <div className="table-pager">
+          <button disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+          <span className="muted">Page {safePage}/{pages}</span>
+          <button disabled={safePage >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}>Next</button>
+        </div>
+      ) : null}
     </>
   );
 }

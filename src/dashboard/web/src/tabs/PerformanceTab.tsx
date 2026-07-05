@@ -139,6 +139,8 @@ function TradeLogSubTab() {
         {trades.error ? <Err msg={trades.error} /> : !trades.data ? <Skeleton /> : (
           <Table
             rows={trades.data}
+            interactive
+            filterKeys={["instrument", "direction", "status"]}
             cols={[
               ["instrument", "Instr"],
               ["direction", "Dir"],
@@ -236,6 +238,8 @@ function TradeReplaySubTab() {
         {pnl.error ? <Err msg={pnl.error} /> : !pnl.data ? <Skeleton /> : (
           <Table
             rows={pnl.data.recent}
+            interactive
+            filterKeys={["instrument", "direction", "status"]}
             cols={[
               ["instrument", "Instr"],
               ["direction", "Dir"],
@@ -294,6 +298,8 @@ function ZoneTradeSubTab({ endpoint, title }: { endpoint: string; title: string 
         {zt.error ? <Err msg={zt.error} /> : !zt.data ? <Skeleton /> : (
           <Table
             rows={zt.data.recent}
+            interactive
+            filterKeys={["instrument", "direction", "status", "week"]}
             cols={[
               ["instrument", "Instr"],
               ["direction", "Dir"],
