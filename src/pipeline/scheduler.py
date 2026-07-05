@@ -42,6 +42,14 @@ def build_scheduler():
         )
 
     scheduler.add_job(
+        tasks.run_job,
+        CronTrigger(day_of_week="mon-fri", minute="*/15"),
+        args=["check_live_trades"],
+        id="check_live_trades",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         tasks.nightly_replay,
         CronTrigger(day_of_week="mon-fri", hour=22, minute=0),
         id="nightly_replay",
@@ -76,6 +84,7 @@ def main(argv: list[str]) -> int:
             "fetch_data",
             "zone_outcomes",
             "trade_outcome",
+            "check_live_trades",
             "calibration",
             "reconcile",
             "send_notifications",

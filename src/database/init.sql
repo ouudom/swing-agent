@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS zone_ledger (
   source_file text,
   status text,
   notes text,
+  replay_status text,
   entry_confluence double precision,
   daily_verdict text,
   limit_price double precision,
@@ -228,6 +229,33 @@ CREATE TABLE IF NOT EXISTS notification_event (
 
 CREATE INDEX IF NOT EXISTS ix_notification_event_status_created
   ON notification_event (status, created_utc);
+
+CREATE TABLE IF NOT EXISTS trade_log (
+  zone_id text PRIMARY KEY REFERENCES zone_ledger(zone_id) ON DELETE CASCADE,
+  instrument text NOT NULL,
+  week text NOT NULL,
+  label text,
+  direction text,
+  status text NOT NULL DEFAULT 'PENDING',
+  entry_confluence double precision,
+  limit_price double precision,
+  sl_price double precision,
+  tp_price double precision,
+  hard_block_flags text,
+  reason text,
+  entry_price double precision,
+  fill_time timestamptz,
+  exit_price double precision,
+  exit_time timestamptz,
+  r_result double precision,
+  validation_date date,
+  run_id text,
+  created_utc timestamptz NOT NULL DEFAULT now(),
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_trade_log_instrument_status
+  ON trade_log (instrument, status);
 
 CREATE TABLE IF NOT EXISTS routine_checkpoint (
   routine_name text PRIMARY KEY,

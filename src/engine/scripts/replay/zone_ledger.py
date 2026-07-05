@@ -6,8 +6,12 @@ trade ever fires. `zone_outcomes.py` later replays OHLC against these rows to
 measure zone hit-rates, confluence-score calibration, and would-be R outcomes.
 Without this, confluence scores are never validated against reality.
 
-Store: `zone_ledger` table in data/database/index.db (DB-canonical; resolver flips
-status OPEN→RESOLVED). zone_id = {instrument}-{week}-{label}, e.g. gbpusd-2026-W24-PRIMARY.
+Store: `zone_ledger` table in data/database/index.db (DB-canonical). Two resolvers write back
+distinct status fields — they use different fill models and can disagree on whether a zone is
+"done": `zone_outcomes.py` flips `status` OPEN→RESOLVED (R1 near-edge-fill zone-quality model);
+`trade_outcome.py` writes `replay_status` (R2 real E0+offset entry-mechanics model: PENDING/
+NO_TOUCH/LIMIT_MISSED/WIN_TP1/LOSS_SL/BREAKEVEN/RUNNING). zone_id = {instrument}-{week}-{label},
+e.g. gbpusd-2026-W24-PRIMARY.
 
 Usage:
     bash scripts/pyrun.sh scripts/replay/zone_ledger.py add \
@@ -53,6 +57,10 @@ COLUMNS = [
     "zone_bottom", "zone_top", "zone_confluence", "conviction",
     "invalidation_level", "tp_anchor", "published_utc", "source_file",
     "status", "notes",
+    # trade_outcome.py write-back (real E0+offset entry-mechanics status, R2) — distinct from
+    # `status` above, which is the zone_outcomes.py R1 near-edge-fill zone-quality lifecycle.
+    # The two resolvers use different fill models and can disagree on whether a zone is "done".
+    "replay_status",
     # daily-validation write-back (latest /validate verdict per zone) — frontend reads these
     "entry_confluence", "daily_verdict", "limit_price", "validated_date",
     # asymmetric anchor lock (D030 follow-up; D032): freeze an E0-confirmed ORDER_LIMIT anchor for
@@ -107,6 +115,7 @@ def cmd_add(args):
         "source_file": args.source_file or f"wiki/weekly-forecasts/{args.week.replace('-', '')}/{args.instrument}.md",
         "status": "OPEN",
         "notes": args.notes or "",
+        "replay_status": "PENDING",
         "entry_confluence": "",
         "daily_verdict": "PENDING",      # set by `zone_ledger.py validate` at /validate
         "limit_price": "",
@@ -249,7 +258,7 @@ def cmd_list(args):
         print("no matching rows")
         return
     cols = ["zone_id", "direction", "zone_bottom", "zone_top", "zone_confluence",
-            "conviction", "status", "daily_verdict"]
+            "conviction", "status", "replay_status", "daily_verdict"]
     print(df[cols].to_string(index=False))
     print(f"\n{len(df)} rows | status: {df['status'].value_counts().to_dict()}")
 

@@ -56,6 +56,33 @@ DDL = [
       updated_utc timestamptz NOT NULL DEFAULT now()
     )
     """,
+    "ALTER TABLE zone_ledger ADD COLUMN IF NOT EXISTS replay_status text",
+    """
+    CREATE TABLE IF NOT EXISTS trade_log (
+      zone_id text PRIMARY KEY REFERENCES zone_ledger(zone_id) ON DELETE CASCADE,
+      instrument text NOT NULL,
+      week text NOT NULL,
+      label text,
+      direction text,
+      status text NOT NULL DEFAULT 'PENDING',
+      entry_confluence double precision,
+      limit_price double precision,
+      sl_price double precision,
+      tp_price double precision,
+      hard_block_flags text,
+      reason text,
+      entry_price double precision,
+      fill_time timestamptz,
+      exit_price double precision,
+      exit_time timestamptz,
+      r_result double precision,
+      validation_date date,
+      run_id text,
+      created_utc timestamptz NOT NULL DEFAULT now(),
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_trade_log_instrument_status ON trade_log (instrument, status)",
 ]
 
 

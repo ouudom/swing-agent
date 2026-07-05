@@ -157,16 +157,97 @@ claude mcp add --transport http swing-agent \
   --header "Authorization: Bearer $MCP_AUTH_TOKEN"
 ```
 
-All 15 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
+All 16 tools (`get_brief`, `get_zone_context`, `sql_query`, `run_gate`, `run_replay`, `run_backtest`,
 `run_calibration`, `get_news`, `get_econ`, `get_calibration`, `compute_indicators`,
-`publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint`) then appear
-in Claude Code with schemas auto-derived from the Python signatures.
+`publish_zone`, `write_verdict`, `write_trade_log`, `queue_notification`, `update_checkpoint`) then
+appear in Claude Code with schemas auto-derived from the Python signatures.
 
 Do not expose the MCP port publicly without a tunnel/VPN and a strong `MCP_AUTH_TOKEN`.
 Compose binds it to `127.0.0.1` on the host by default.
 
 Structured write smoke should use a test zone only, then remove it. Production writes happen through
 `publish_zone` and `write_verdict`, followed by markdown commit/push from Claude Code.
+
+## 6b. Expose MCP for a Cloud Scheduled Agent (Cloudflare Tunnel + nginx)
+
+Only needed if the hourly `/validate` routine runs as a cloud-hosted scheduled agent instead of a
+local cron — the cloud host can't reach `127.0.0.1:8766` on your homeserver directly. Requires: a
+domain on Cloudflare, `cloudflared` installed on the homeserver, nginx already reverse-proxying
+other services there.
+
+**1. Generate a strong `MCP_AUTH_TOKEN`** (if still `dev-token`) and restart:
+
+```bash
+openssl rand -hex 32   # put the output in .env as MCP_AUTH_TOKEN=...
+docker compose up -d mcp-native
+```
+
+**2. nginx vhost** (`/etc/nginx/sites-available/mcp.yourdomain.com`) — proxies to the
+container's loopback-only port, no public TLS cert needed since Cloudflare Tunnel terminates TLS
+at the edge:
+
+```nginx
+server {
+    listen 127.0.0.1:8080;   # cloudflared's local origin — not directly internet-reachable
+    server_name mcp.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8766;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";       # required for the MCP streaming response
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+```bash
+ln -s /etc/nginx/sites-available/mcp.yourdomain.com /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+```
+
+**3. Cloudflare Tunnel** — point the public hostname at nginx's origin (not straight at 8766, so
+nginx stays the single choke point for every exposed service):
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create swing-agent-mcp
+cloudflared tunnel route dns swing-agent-mcp mcp.yourdomain.com
+```
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: swing-agent-mcp
+credentials-file: /root/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: mcp.yourdomain.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404
+```
+
+```bash
+cloudflared tunnel run swing-agent-mcp
+# or as a service: cloudflared service install && systemctl enable --now cloudflared
+```
+
+**4. Smoke test from outside the LAN**:
+
+```bash
+curl https://mcp.yourdomain.com/health
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://mcp.yourdomain.com/mcp   # 401 unauthed
+```
+
+**5. Register from the cloud agent side**:
+
+```bash
+claude mcp add --transport http swing-agent https://mcp.yourdomain.com/mcp \
+  --header "Authorization: Bearer $MCP_AUTH_TOKEN"
+```
+
+The Bearer check happens in `server_mcp.py` regardless of transport — the tunnel adds network-path
+protection (no direct port exposure, Cloudflare's edge DDoS/WAF) on top, not instead of it. Rotate
+`MCP_AUTH_TOKEN` if it ever leaks into a log or shared screen.
 
 ## 7. One-Shot Jobs
 

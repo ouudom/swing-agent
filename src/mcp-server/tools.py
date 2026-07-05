@@ -452,6 +452,109 @@ def write_verdict(
     return {"verdict": rows[0] if rows else None, "zone_status": zone_status, "idempotent": True}
 
 
+LOCKED_TRADE_STATUSES = {"RUNNING", "WIN", "LOSS", "BREAKEVEN", "EXPIRED"}
+
+
+def write_trade_log(
+    zone_id: str,
+    verdict: str,
+    validation_date: str,
+    instrument: str | None = None,
+    week: str | None = None,
+    label: str | None = None,
+    direction: str | None = None,
+    run_id: str | None = None,
+    entry_confluence: float | None = None,
+    limit_price: float | None = None,
+    sl_price: float | None = None,
+    tp_price: float | None = None,
+    hard_block_flags: list[str] | str | None = None,
+    reason: str | None = None,
+):
+    """Hourly /validate write-back for LIVE order state (distinct from write_verdict's
+    validation_verdict record and from zone_ledger.status/replay_status, which are
+    zone-quality/replay bookkeeping, not real order lifecycle).
+
+    Once a trade_log row reaches RUNNING (filled) or a terminal status (WIN/LOSS/
+    BREAKEVEN/EXPIRED), /validate can no longer change its status — only
+    check_live_trades.py (the scheduled fill/close checker) may. This stops the hourly
+    routine from flip-flopping a live order once it's in the market.
+    """
+    if not _zone_exists(zone_id):
+        raise ValueError(f"unknown zone_id: {zone_id}")
+    verdict = verdict.upper()
+    if verdict not in {"ORDER_LIMIT", "NO_TRADE", "INVALIDATED", "HARD_BLOCK", "CANCEL_LIMIT"}:
+        raise ValueError("invalid verdict")
+    if isinstance(hard_block_flags, list):
+        flags = ",".join(str(x).upper() for x in hard_block_flags if str(x).strip())
+    else:
+        flags = (hard_block_flags or "").upper()
+    if verdict == "ORDER_LIMIT" and flags:
+        raise ValueError("ORDER_LIMIT rejected while hard_block_flags is non-empty")
+    if verdict == "ORDER_LIMIT" and (entry_confluence is None or float(entry_confluence) < 5.0):
+        raise ValueError("ORDER_LIMIT rejected: entry_confluence must be >= 5.0")
+    if verdict == "ORDER_LIMIT" and (sl_price is None or tp_price is None or limit_price is None):
+        raise ValueError("ORDER_LIMIT requires limit_price, sl_price, tp_price")
+
+    existing = query("SELECT status FROM trade_log WHERE zone_id = %s", (zone_id,), row_cap=1)["rows"]
+    current_status = existing[0]["status"] if existing else None
+    if current_status in LOCKED_TRADE_STATUSES:
+        raise ValueError(
+            f"trade_log for {zone_id} is locked at status={current_status} — "
+            "the trade is live/closed; only check_live_trades.py may change it further"
+        )
+
+    status = {"ORDER_LIMIT": "ORDER_LIMIT", "NO_TRADE": "NO_TRADE",
+              "INVALIDATED": "INVALIDATED", "HARD_BLOCK": "INVALIDATED",
+              "CANCEL_LIMIT": "NO_TRADE"}[verdict]
+    run = run_id or f"{validation_date}-{zone_id}"
+    inst = (instrument or zone_id.split("-", 1)[0]).lower()
+    zone_parts = zone_id.split("-")
+    wk = week or (zone_parts[1] + "-" + zone_parts[2] if len(zone_parts) >= 4 else None)
+    lbl = label or (zone_parts[-1] if len(zone_parts) >= 3 else None)
+
+    rows = execute(
+        """
+        INSERT INTO trade_log (
+          zone_id, instrument, week, label, direction, status, entry_confluence,
+          limit_price, sl_price, tp_price, hard_block_flags, reason, validation_date, run_id
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (zone_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          entry_confluence = EXCLUDED.entry_confluence,
+          limit_price = EXCLUDED.limit_price,
+          sl_price = EXCLUDED.sl_price,
+          tp_price = EXCLUDED.tp_price,
+          hard_block_flags = EXCLUDED.hard_block_flags,
+          reason = EXCLUDED.reason,
+          validation_date = EXCLUDED.validation_date,
+          run_id = EXCLUDED.run_id,
+          updated_utc = now()
+        WHERE trade_log.status NOT IN ('RUNNING','WIN','LOSS','BREAKEVEN','EXPIRED')
+        RETURNING *
+        """,
+        (
+            zone_id, inst, wk, lbl, direction, status, entry_confluence,
+            limit_price, sl_price, tp_price, flags, reason, validation_date, run,
+        ),
+    )
+    if not rows:
+        raise ValueError(
+            f"trade_log for {zone_id} was locked by a concurrent fill/close — refresh and retry"
+        )
+    if verdict in {"ORDER_LIMIT", "INVALIDATED", "HARD_BLOCK"}:
+        queue_notification(
+            event_type="trade_log",
+            title=f"{inst.upper()} {status} {zone_id}",
+            message=reason or f"{zone_id}: {status}",
+            instrument=inst,
+            zone_id=zone_id,
+            payload={"validation_date": validation_date, "verdict": verdict},
+        )
+    return {"trade_log": rows[0], "idempotent": True}
+
+
 def queue_notification(
     event_type: str,
     title: str,
@@ -518,6 +621,7 @@ TOOLS = {
     "run_backtest": run_backtest,
     "publish_zone": publish_zone,
     "write_verdict": write_verdict,
+    "write_trade_log": write_trade_log,
     "queue_notification": queue_notification,
     "update_checkpoint": update_checkpoint,
 }

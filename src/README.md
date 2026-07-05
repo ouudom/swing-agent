@@ -55,6 +55,8 @@ docker compose run --rm pipeline \
 docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once trade_outcome
 docker compose run --rm pipeline \
+  python src/pipeline/scheduler.py --once check_live_trades
+docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once calibration
 docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once reconcile
@@ -94,7 +96,14 @@ Set `MCP_AUTH_TOKEN` in `.env` before any LAN/tunnel exposure. Read/compute tool
 `compute_indicators`, `run_gate`, `run_replay`, `run_calibration`, `run_backtest`.
 
 Structured write tools:
-`publish_zone`, `write_verdict`, `queue_notification`, `update_checkpoint`.
+`publish_zone`, `write_verdict`, `write_trade_log`, `queue_notification`, `update_checkpoint`.
+
+`write_trade_log` logs the hourly /validate routine's LIVE order state (ORDER_LIMIT with
+limit/SL/TP, NO_TRADE, INVALIDATED) into `trade_log` — distinct from `write_verdict`'s
+`validation_verdict` record and from `zone_ledger.status`/`replay_status` (zone-quality/
+replay bookkeeping, not real order lifecycle). Once a row reaches RUNNING (filled) or a
+terminal status, only the scheduled `check_live_trades` job may move it further — the
+hourly routine can no longer flip its status.
 
 ## Monitoring Dashboard
 

@@ -99,6 +99,13 @@ def brief_refresh(instrument: str) -> CommandResult:
     return fetch_data(instrument, force=False)
 
 
+def check_live_trades(instrument: str | None = None) -> CommandResult:
+    args = [app_script("check_live_trades.py")]
+    if instrument:
+        args += ["--instrument", instrument]
+    return pyrun(args, timeout_s=120)
+
+
 def reconcile(strict: bool = False) -> CommandResult:
     args = [app_script("reconcile_db_git.py")]
     if strict:

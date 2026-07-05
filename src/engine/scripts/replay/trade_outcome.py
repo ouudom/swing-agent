@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import db  # noqa: E402
 import entry_confluence as ec  # noqa: E402
-from zone_ledger import load_ledger  # noqa: E402
+from zone_ledger import load_ledger, save_ledger  # noqa: E402
 from zone_outcomes import (  # noqa: E402  (reuse — do not duplicate)
     week_window, atr14_before, load_tf, min_bar_range,
 )
@@ -425,6 +425,7 @@ def main():
         out = resolve_trade(z, h1, h4, d1, mbr, tp_r=tp_r_map.get(z["zone_id"], TP_R_NEAR))
         out["resolved_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         rows.append(out)
+        ledger.loc[ledger["zone_id"] == z["zone_id"], "replay_status"] = out["status"]
         rr = f" ({out['r_result']:+.1f}R)" if out["r_result"] != "" else ""
         bf = f" [{out['block_flags']}]" if out["block_flags"] else ""
         print(f"{z['zone_id']:<32} {z['direction']:<5} EC{str(out['ec_score']):>4} "
@@ -437,7 +438,8 @@ def main():
         if not old.empty:
             res = pd.concat([old.astype(str), res.astype(str)], ignore_index=True)
     db.write_table(OUTCOMES_TABLE, res, mirror_csv=OUTCOMES_CSV)
-    print(f"\n→ {OUTCOMES_TABLE} table + {OUTCOMES_CSV} ({len(res)} rows)")
+    save_ledger(ledger)
+    print(f"\n→ {OUTCOMES_TABLE} table + {OUTCOMES_CSV} ({len(res)} rows); ledger replay_status updated")
     summarize(res)
 
 
