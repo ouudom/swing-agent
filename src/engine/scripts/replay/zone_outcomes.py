@@ -1,6 +1,8 @@
 """
 Zone outcomes — shadow-trade resolver. Replays stored OHLC against every zone in the
-`zone_ledger` DB table and writes would-be results to the `zone_outcome` table.
+`zone_ledger` DB table and writes would-be results to the `zone_outcome` table
+(SL = zone width) and the `zone_atr_sl_outcome` comparison table (SL = constitution
+ATR formula). Only `zone_outcome` drives `zone_ledger.status`.
 
 Answers, per published zone: did price reach it? would the trade have won? After
 ~20–30 resolved zones the summary shows whether Zone Confluence 8.0 actually beats
@@ -12,29 +14,34 @@ Shadow-trade model (simplifications, deliberately documented):
              range crosses the ZONE NEAR EDGE (top for LONG, bottom for SHORT —
              the edge price hits first on approach into the zone). Entry price =
              that edge. No E0/offset replay — this measures ZONE quality, not
-             entry-timing quality (that's R2's job). (Changed from zone-midpoint
-             fill 2026-06-28 — edge fill is the more conservative/realistic limit
-             assumption; breaks numeric comparability with pre-change resolved rows.)
+             entry-timing quality (that's R2's job).
   - Kill   = D1 close beyond invalidation_level (ledger value, else zone far edge)
              before fill → INVALIDATED. D1 close treated as effective at
              bar_date + 22:00 UTC (FX session close).
-  - SL     = constitution formula at fill time, on closed bars only:
-             H4_ATR14 if 0.5×D1_ATR14 < H4_ATR14 else avg(0.5×D1_ATR14, H4_ATR14);
-             H4 bars filtered to range >= MIN_BAR_RANGE (per instrument config).
+  - SL     = zone_top − zone_bottom (the zone's own width, `sl_mode="zone"`, default
+             — entry sits at the near edge so this stop lands exactly on the far
+             edge). The `zone_atr_sl_outcome` table instead resolves with
+             `sl_mode="atr"`: constitution formula H4_ATR14 if 0.5×D1_ATR14 <
+             H4_ATR14 else avg(0.5×D1_ATR14, H4_ATR14); comparison only, does not
+             drive the ledger.
   - Manage = TP +3.0R nearer zone / +4.0R further zone (v3 distance-tiered); SL −1R;
              BE: stop → entry after a bar's MFE reaches +1.5R
              (armed from the NEXT bar). Same-bar SL+TP ambiguity → SL (conservative).
-             Walk is bounded to the trade week's market close (Fri 22:00 UTC). If
-             still live (week not yet closed) → RUNNING (interim, re-resolved next
-             run). If the week closed without TP/SL/BE → EXPIRED, marked to market
-             at the last close before week-end.
+             Walk is unbounded past the forecast week — a filled trade keeps
+             running until it actually exits (matches constitution: filled
+             positions run past Friday's cancel-unfilled-limits cutoff).
   - Status = PENDING (week live, no fill yet) | NO_TOUCH | TOUCH_NO_FILL |
-             INVALIDATED | WIN_TP1 | LOSS_SL | BREAKEVEN | RUNNING | EXPIRED.
-             Terminal statuses (everything but RUNNING) flip the ledger row to RESOLVED.
+             INVALIDATED | WIN_TP1 | LOSS_SL | BREAKEVEN | RUNNING.
+             At the zone's own market close (Fri 22:00 UTC), every zone that isn't
+             filled-and-still-live resolves to a terminal status; a filled zone
+             that hasn't hit TP/SL/BE stays RUNNING regardless of market close and
+             is re-resolved on the next run. Terminal statuses flip the ledger row
+             to RESOLVED; RUNNING (and PENDING) leave it OPEN.
 
 Usage:
     bash scripts/pyrun.sh scripts/replay/zone_outcomes.py            # resolve all + summary
     bash scripts/pyrun.sh scripts/replay/zone_outcomes.py --week 2026-W24
+    bash scripts/pyrun.sh scripts/replay/zone_outcomes.py --only atr # zone_atr_sl_outcome only
 """
 
 from __future__ import annotations
@@ -52,9 +59,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # scripts root,
 import db  # noqa: E402
 from zone_ledger import load_ledger, save_ledger  # noqa: E402
 
-OUTCOMES_CSV = Path("data/zone_outcomes.csv")
-OUTCOMES_TABLE = "zone_outcome"
-TERMINAL = {"NO_TOUCH", "TOUCH_NO_FILL", "INVALIDATED", "WIN_TP1", "LOSS_SL", "BREAKEVEN", "EXPIRED"}
+OUTCOMES_TABLE = "zone_outcome"          # sl_mode="zone" — drives zone_ledger.status
+ATR_TABLE = "zone_atr_sl_outcome"        # sl_mode="atr"  — comparison only
+TERMINAL = {"NO_TOUCH", "TOUCH_NO_FILL", "INVALIDATED", "WIN_TP1", "LOSS_SL", "BREAKEVEN"}
 
 # v3 distance-tiered TP (matches trade_outcome.py): within each (instrument, week) the zone
 # nearest the week's opening spot targets 3.0R, all others 4.0R. Replaces the flat TP1 2.5R.
@@ -112,7 +119,7 @@ def min_bar_range(instrument: str) -> float:
 
 
 def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFrame,
-                 mbr: float, tp_r: float = TP_R_NEAR) -> dict:
+                 mbr: float, tp_r: float = TP_R_NEAR, sl_mode: str = "zone") -> dict:
     out = {c: "" for c in OUT_COLS}
     out.update({k: z[k] for k in ["zone_id", "instrument", "week", "label", "direction",
                                   "zone_confluence", "conviction"]})
@@ -167,17 +174,18 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
     fill_time = fill_bar["datetime"]
     out["fill_time"], out["entry"] = str(fill_time), entry_px
 
-    d1_atr = atr14_before(d1, pd.Timestamp(fill_time.date()))
-    h4_trade = h4[(h4["high"] - h4["low"]) >= mbr]
-    h4_atr = atr14_before(h4_trade, fill_time)
-    # pd.isna catches both "too few bars" (None) and a NaN mean from gappy OHLC —
-    # `is None` alone let NaN slip through, silently producing a NaN sl that made
-    # every stop/tp/mfe/mae comparison False and stranded the trade in RUNNING.
-    if pd.isna(d1_atr) or pd.isna(h4_atr):
-        out["status"] = "PENDING"
-        out["fill_time"] = ""
-        return out
-    sl = h4_atr if 0.5 * d1_atr < h4_atr else (0.5 * d1_atr + h4_atr) / 2
+    if sl_mode == "atr":
+        d1_atr = atr14_before(d1, pd.Timestamp(fill_time.date()))
+        h4_trade = h4[(h4["high"] - h4["low"]) >= mbr]
+        h4_atr = atr14_before(h4_trade, fill_time)
+        # pd.isna catches both "too few bars" (None) and a NaN mean from gappy OHLC.
+        if pd.isna(d1_atr) or pd.isna(h4_atr):
+            out["status"] = "PENDING"
+            out["fill_time"] = ""
+            return out
+        sl = h4_atr if 0.5 * d1_atr < h4_atr else (0.5 * d1_atr + h4_atr) / 2
+    else:  # "zone" — SL is the zone's own width; entry at near edge → stop at far edge
+        sl = top - bot
     out["sl_dist"] = round(sl, 6)
 
     stop = entry_px - sign * sl
@@ -186,9 +194,7 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
     be_armed = False
     mfe = mae = 0.0
 
-    # Bounded to the trade week's market close — an unbounded walk let trades that
-    # never hit TP/SL/BE drift as "RUNNING" for weeks with no way to ever resolve.
-    walk = h1[(h1["datetime"] >= fill_time) & (h1["datetime"] < end)]
+    walk = h1[h1["datetime"] >= fill_time]  # unbounded — filled trades run past the forecast week
     for _, bar in walk.iterrows():
         hi, lo = bar["high"], bar["low"]
         fav = (hi - entry_px) if sign > 0 else (entry_px - lo)
@@ -210,15 +216,9 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
             be_armed = True
             stop = entry_px  # armed; effective next bar (this bar's stop already checked)
     else:
+        out["status"] = "RUNNING"  # not yet resolved — re-resolved next run regardless of market close
         last_close = walk["close"].iloc[-1] if len(walk) else entry_px
-        r_mark = round(sign * (last_close - entry_px) / sl, 2)
-        if week_live:
-            out["status"] = "RUNNING"  # interim — re-resolved once the week closes
-            out["r_result"] = r_mark
-        else:
-            out["status"] = "EXPIRED"  # week closed, no TP/SL/BE — mark to market
-            out["r_result"] = r_mark
-            out["exit_time"] = str(walk["datetime"].iloc[-1]) if len(walk) else str(end)
+        out["r_result"] = round(sign * (last_close - entry_px) / sl, 2)
 
     out["mfe_r"], out["mae_r"] = round(mfe, 2), round(mae, 2)
     return out
@@ -244,21 +244,23 @@ def summarize(df: pd.DataFrame):
             print(f"  R1 {lbl}: n={n} win {w / n:.0%} avg {r[m].mean():+.2f}R")
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--week", default="", help="resolve only this trade week")
-    ap.add_argument("--instrument", default="")
-    args = ap.parse_args()
+def run_replay(table: str, sl_mode: str, week: str = "", instrument: str = "",
+               update_ledger: bool = False, wipe: bool = False) -> pd.DataFrame:
+    """Resolve every ledger zone (optionally filtered) into `table` using `sl_mode`.
 
+    wipe=True writes exactly this run's rows with no merge against prior contents —
+    use for a full rebuild after a rule change breaks comparability with old rows.
+    update_ledger=True additionally flips zone_ledger.status from this run's results
+    (only zone_outcome / sl_mode="zone" should own the ledger).
+    """
     ledger = load_ledger()
     if ledger.empty:
         sys.exit("ledger empty — register zones with zone_ledger.py first")
     todo = ledger.copy()
-    if args.week:
-        todo = todo[todo["week"] == args.week]
-    if args.instrument:
-        todo = todo[todo["instrument"] == args.instrument]
+    if week:
+        todo = todo[todo["week"] == week]
+    if instrument:
+        todo = todo[todo["instrument"] == instrument]
 
     rows, data_cache = [], {}
 
@@ -270,8 +272,8 @@ def main():
 
     # v3 distance-tiered TP: nearest zone to the week's opening spot → 3.0R, others → 4.0R.
     tp_r_map = {}
-    for (inst, week), grp in todo.groupby(["instrument", "week"]):
-        wstart, _ = week_window(week)
+    for (inst, wk), grp in todo.groupby(["instrument", "week"]):
+        wstart, _ = week_window(wk)
         sb = _h1(inst)[_h1(inst)["datetime"] >= wstart]
         spot = float(sb["close"].iloc[0]) if not sb.empty else None
         dists = {z["zone_id"]: (abs((float(z["zone_top"]) + float(z["zone_bottom"])) / 2 - spot)
@@ -287,27 +289,47 @@ def main():
             data_cache[inst] = (load_tf(inst, "1h"), load_tf(inst, "4h"),
                                 load_tf(inst, "1day"), min_bar_range(inst))
         h1, h4, d1, mbr = data_cache[inst]
-        out = resolve_zone(z, h1, h4, d1, mbr, tp_r=tp_r_map.get(z["zone_id"], TP_R_NEAR))
+        out = resolve_zone(z, h1, h4, d1, mbr, tp_r=tp_r_map.get(z["zone_id"], TP_R_NEAR),
+                           sl_mode=sl_mode)
         out["resolved_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         rows.append(out)
-        ledger.loc[ledger["zone_id"] == z["zone_id"], "status"] = (
-            "RESOLVED" if out["status"] in TERMINAL else "OPEN")
-        print(f"{z['zone_id']:<32} {z['direction']:<5} "
+        if update_ledger:
+            ledger.loc[ledger["zone_id"] == z["zone_id"], "status"] = (
+                "RESOLVED" if out["status"] in TERMINAL else "OPEN")
+        print(f"[{table}] {z['zone_id']:<32} {z['direction']:<5} "
               f"{z['zone_bottom']}–{z['zone_top']}  → {out['status']}"
               + (f" ({out['r_result']:+.1f}R)" if out["r_result"] != "" else ""))
 
     res = pd.DataFrame(rows)[OUT_COLS]
-    old = db.read_table(OUTCOMES_TABLE)  # keep rows for zones outside this run's filter
-    if not old.empty and "zone_id" in old.columns:
-        old = old[~old["zone_id"].isin(res["zone_id"])]
-        if not old.empty:
-            res = pd.concat([old.astype(str), res.astype(str)], ignore_index=True)
-    # Canonical store = data/database/index.db (table `zone_outcome`); DB-only, no CSV mirror.
-    db.write_table(OUTCOMES_TABLE, res)
-    save_ledger(ledger)
-    print(f"\n→ {OUTCOMES_TABLE} table ({len(res)} rows); ledger statuses updated")
+    if not wipe:
+        old = db.read_table(table)  # keep rows for zones outside this run's filter
+        if not old.empty and "zone_id" in old.columns:
+            old = old[~old["zone_id"].isin(res["zone_id"])]
+            if not old.empty:
+                res = pd.concat([old.astype(str), res.astype(str)], ignore_index=True)
+    db.write_table(table, res)
+    if update_ledger:
+        save_ledger(ledger)
+    print(f"\n→ {table} table ({len(res)} rows)" + (" — ledger statuses updated" if update_ledger else ""))
+    return res
 
-    summarize(res)
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--week", default="", help="resolve only this trade week")
+    ap.add_argument("--instrument", default="")
+    ap.add_argument("--only", choices=["both", "zone", "atr"], default="both",
+                    help="which table(s) to resolve")
+    args = ap.parse_args()
+
+    if args.only in ("both", "zone"):
+        res_zone = run_replay(OUTCOMES_TABLE, "zone", args.week, args.instrument, update_ledger=True)
+        summarize(res_zone)
+
+    if args.only in ("both", "atr"):
+        res_atr = run_replay(ATR_TABLE, "atr", args.week, args.instrument, update_ledger=False)
+        summarize(res_atr)
 
 
 if __name__ == "__main__":

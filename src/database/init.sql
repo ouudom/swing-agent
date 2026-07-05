@@ -145,6 +145,31 @@ CREATE TABLE IF NOT EXISTS zone_outcome (
 CREATE INDEX IF NOT EXISTS ix_zone_outcome_instrument_week
   ON zone_outcome (instrument, week);
 
+-- Same replay as zone_outcome, but SL = constitution ATR formula instead of zone
+-- width. Comparison-only: does NOT drive zone_ledger.status.
+CREATE TABLE IF NOT EXISTS zone_atr_sl_outcome (
+  zone_id text PRIMARY KEY,
+  instrument text NOT NULL,
+  week text NOT NULL,
+  label text,
+  direction text,
+  zone_confluence double precision,
+  conviction text,
+  status text,
+  touched integer,
+  fill_time timestamptz,
+  entry double precision,
+  sl_dist double precision,
+  r_result double precision,
+  mfe_r double precision,
+  mae_r double precision,
+  exit_time timestamptz,
+  resolved_utc timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS ix_zone_atr_sl_outcome_instrument_week
+  ON zone_atr_sl_outcome (instrument, week);
+
 CREATE TABLE IF NOT EXISTS trade_outcome (
   zone_id text PRIMARY KEY,
   instrument text NOT NULL,

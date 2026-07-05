@@ -208,6 +208,30 @@ DDL = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_feature_snapshot_zone ON feature_snapshot (zone_id, event_type)",
     "CREATE INDEX IF NOT EXISTS ix_feature_snapshot_instrument_event ON feature_snapshot (instrument, event_type, event_utc)",
+    # Comparison table: same zone_outcome replay, SL = constitution ATR formula
+    # instead of zone width. Does NOT drive zone_ledger.status.
+    """
+    CREATE TABLE IF NOT EXISTS zone_atr_sl_outcome (
+      zone_id text PRIMARY KEY,
+      instrument text NOT NULL,
+      week text NOT NULL,
+      label text,
+      direction text,
+      zone_confluence double precision,
+      conviction text,
+      status text,
+      touched integer,
+      fill_time timestamptz,
+      entry double precision,
+      sl_dist double precision,
+      r_result double precision,
+      mfe_r double precision,
+      mae_r double precision,
+      exit_time timestamptz,
+      resolved_utc timestamptz
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_zone_atr_sl_outcome_instrument_week ON zone_atr_sl_outcome (instrument, week)",
 ]
 
 

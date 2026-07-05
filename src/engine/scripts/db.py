@@ -24,6 +24,7 @@ BACKEND = os.getenv("SWING_DB_BACKEND", "sqlite").lower()
 INDEXES = {
     "zone_ledger": [("instrument", "week")],
     "zone_outcome": [("instrument", "week")],
+    "zone_atr_sl_outcome": [("instrument", "week")],
     "trade_outcome": [("instrument", "week")],
 }
 
