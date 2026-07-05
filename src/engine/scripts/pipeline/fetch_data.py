@@ -82,21 +82,67 @@ sys.path.insert(0, os.path.join(_SCRIPTS_ROOT, "lib"))
 sys.path.insert(0, _SCRIPTS_ROOT)  # for `db` import below (canonical store — not a fallback)
 from ohlc_store import upsert, last_dt as manifest_last_dt
 
-try:                       # DB-live mirror sync (canonical store migration); CSV stays working set
+try:                       # canonical store
     import db
 except Exception:
     db = None
 
+RUN_ISSUES = []
+_ISSUE_SEEN = set()
+_SHARED_CACHE = {}
+
+
+def _record_issue(kind, detail):
+    issue = f"{kind}: {detail}"
+    if issue in _ISSUE_SEEN:
+        return
+    _ISSUE_SEEN.add(issue)
+    RUN_ISSUES.append(issue)
+
 
 def _db_sync(label, fn):
-    """Best-effort sync of a freshly-written slice into data/database/index.db. Never breaks the
-    pull on a DB error — the CSV write already succeeded and is the fallback (STORAGE.md)."""
+    """Best-effort sync into the canonical DB. Never breaks fetch; caller reports health."""
     if db is None:
+        _record_issue("db", f"{label} skipped; db module unavailable")
         return
     try:
         fn()
     except Exception as e:
-        print(f"  ⚠ DB sync {label} failed (CSV OK): {e}")
+        _record_issue("db", f"{label} failed: {e}")
+        print(f"  ⚠ DB sync {label} failed: {e}")
+
+
+def _date_iso(value):
+    if value is None or value == "":
+        return None
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.isna(ts):
+        return str(value)[:10]
+    return ts.strftime("%Y-%m-%d")
+
+
+def _is_critical_issue(issue):
+    return issue.startswith(("fetch:", "db:", "fred:", "dxy:", "commodity:"))
+
+
+def _print_health(start_issue_count):
+    new_issues = RUN_ISSUES[start_issue_count:]
+    if not new_issues:
+        print("✅ data ready (DB canonical).")
+        return
+    critical = [i for i in new_issues if _is_critical_issue(i)]
+    print(f"⚠ data ready with {len(new_issues)} issue(s), critical={len(critical)}.")
+    for issue in new_issues[:12]:
+        print(f"  - {issue}")
+    if len(new_issues) > 12:
+        print(f"  - ... {len(new_issues) - 12} more")
+
+
+def _shared_result(name, force, fn):
+    key = (name, bool(force))
+    if key not in _SHARED_CACHE:
+        _SHARED_CACHE[key] = fn()
+    return _SHARED_CACHE[key]
 
 
 load_dotenv()
@@ -210,17 +256,28 @@ def update_fred(force=False, series=None):
     results  = []
     for sid in series:
         csv_path  = FRED_DIR / f"{sid}.csv"
-        last_date = db.last_series_date("macro_series", {"series_id": sid}) if db else None
+        last_date = _date_iso(db.last_series_date("macro_series", {"series_id": sid}) if db else None)
         obs_start = ((datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
                      if (force or not last_date) else last_date)
         try:
             r   = requests.get("https://api.stlouisfed.org/fred/series/observations",
                                params={"series_id": sid, "observation_start": obs_start,
                                        "api_key": FRED_KEY, "file_type": "json"}, timeout=15)
-            obs = r.json().get("observations", [])
-            new = pd.DataFrame(obs)[["date", "value"]]
+            r.raise_for_status()
+            payload = r.json()
+            if "error_code" in payload:
+                raise RuntimeError(payload.get("error_message") or payload["error_code"])
+            obs = payload.get("observations", [])
+            raw = pd.DataFrame(obs)
+            if raw.empty:
+                new = pd.DataFrame(columns=["date", "value"])
+            elif {"date", "value"}.issubset(raw.columns):
+                new = raw[["date", "value"]].copy()
+            else:
+                raise RuntimeError(f"unexpected FRED payload columns: {list(raw.columns)}")
+            new["date"] = pd.to_datetime(new["date"], errors="coerce").dt.strftime("%Y-%m-%d")
             new["value"] = pd.to_numeric(new["value"], errors="coerce")
-            new = new.dropna()
+            new = new.dropna(subset=["date", "value"])
             if not force and last_date:
                 new = new[new["date"] > last_date]
             if not new.empty:
@@ -228,7 +285,10 @@ def update_fred(force=False, series=None):
                 if (prior is None or prior.empty) and csv_path.exists():
                     prior = pd.read_csv(csv_path)[["date", "value"]]
                 if prior is not None and not prior.empty:
+                    prior = prior.copy()
+                    prior["date"] = pd.to_datetime(prior["date"], errors="coerce").dt.strftime("%Y-%m-%d")
                     combined = (pd.concat([prior, new], ignore_index=True)
+                                .dropna(subset=["date"])
                                 .drop_duplicates("date", keep="last")
                                 .sort_values("date").reset_index(drop=True))
                 else:
@@ -237,8 +297,9 @@ def update_fred(force=False, series=None):
                     "macro_series", {"series_id": s},
                     c.assign(series_id=s)[["series_id", "date", "value"]],
                     index_cols=["series_id", "date"]))
-            results.append((sid, len(new), db.last_series_date("macro_series", {"series_id": sid}) if db else "?"))
+            results.append((sid, len(new), _date_iso(db.last_series_date("macro_series", {"series_id": sid}) if db else "?")))
         except Exception as e:
+            _record_issue("fred", f"{sid} failed: {e}")
             results.append((sid, f"ERROR: {e}", last_date or "?"))
     return results
 
@@ -357,7 +418,7 @@ def fetch_gld_flows():
         return {"error": str(e)}
 
 def fetch_dxy(force=False):
-    """ICE DXY via yfinance DX-Y.NYB. Appends to data/yahoo/DXY.csv (date,value)."""
+    """ICE DXY via yfinance DX-Y.NYB. Syncs market_series; CSV is cold-start fallback."""
     try:
         DXY_CSV.parent.mkdir(parents=True, exist_ok=True)
         # always pull last 90d, dedupe + merge
@@ -553,8 +614,7 @@ def fetch_news(force=False, categories=None):
 # ── INTERMARKET COMMODITIES (#3 — yfinance, AUD/NZD only) ─────────────────────
 
 def fetch_commodities_yf(tickers: dict):
-    """Daily close for yfinance commodity tickers (e.g. {'copper':'HG=F'}) →
-    data/commodities/{name}.csv (date,value). Reuses the yfinance pattern from fetch_dxy."""
+    """Daily close for yfinance commodity tickers. Syncs market_series; CSV is fallback only."""
     out = {}
     COMMODITIES_DIR.mkdir(parents=True, exist_ok=True)
     for name, tk in tickers.items():
@@ -586,11 +646,12 @@ def fetch_commodities_yf(tickers: dict):
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 def fetch_and_update(force=False):
-    """Fetch 15M bars, resample, update FRED CSVs. Returns brief status lines.
+    """Fetch 15M bars, resample, update DB-backed data. Returns brief status lines.
     Called by both run() and --fetch-only mode (used by /validate)."""
     if not TWELVE_KEY or not FRED_KEY:
         print("ERROR: TWELVE_DATA_KEY or FRED_KEY not set in .env"); sys.exit(1)
 
+    start_issue_count = len(RUN_ISSUES)
     print("Fetching 15M bars from Twelve Data (1 API call)...")
     new_15m  = fetch_15m(force=force)
     info_15m = upsert("twelvedata", SYMBOL, "15min", new_15m)
@@ -599,32 +660,37 @@ def fetch_and_update(force=False):
     resample_results = resample_all()
     for tf, rows, last in resample_results:
         print(f"  → {tf}: {rows} rows | last: {last}")
-    print("Updating FRED CSVs...")
+    print("Updating FRED macro series...")
     fred_results = update_fred(force=force)
     for sid, n, last in fred_results:
         print(f"  → {sid}: {n} new | last: {last}")
     print("Updating DXY (ICE 6-currency, yfinance DX-Y.NYB)...")
-    dxy_res = fetch_dxy(force=force)
+    dxy_res = _shared_result("dxy", force, lambda: fetch_dxy(force=force))
     if "error" in dxy_res:
+        _record_issue("dxy", dxy_res["error"])
         print(f"  → DXY fetch FAILED: {dxy_res['error']}")
     else:
         print(f"  → DXY: {dxy_res['rows']} rows | last {dxy_res['last_date']} = {dxy_res['value']}")
 
     # Economic calendar (#1/#2) — shared across instruments, one CSV. Non-fatal on failure.
     print("Updating economic calendar (Forex Factory free JSON)...")
-    econ_res = fetch_econ_calendar(force=force)
+    econ_res = _shared_result("econ_calendar", force, lambda: fetch_econ_calendar(force=force))
     if "error" in econ_res:
-        print(f"  → econ calendar SKIPPED: {econ_res['error']} (web-search fallback still applies)")
+        _record_issue("econ", econ_res["error"])
+        print(f"  → econ calendar SKIPPED: {econ_res['error']} (kept previous DB rows; web-search fallback still applies)")
     else:
-        print(f"  → econ calendar: {econ_res['rows']} rows ({econ_res['this_pull']} this pull), last {econ_res['last']}")
+        warn = f" [{econ_res['warn']}]" if econ_res.get("warn") else ""
+        print(f"  → econ calendar: {econ_res['rows']} rows ({econ_res['this_pull']} this pull), last {econ_res['last']}{warn}")
 
     # News store (free RSS feeds) — shared across instruments, one CSV. Non-fatal.
     print("Updating news store (RSS)...")
-    news_res = fetch_news(force=force)
+    news_res = _shared_result("news", force, lambda: fetch_news(force=force))
     if "error" in news_res:
-        print(f"  → news SKIPPED: {news_res['error']} (web-search fallback still applies)")
+        _record_issue("news", news_res["error"])
+        print(f"  → news SKIPPED: {news_res['error']} (kept previous DB rows; web-search fallback still applies)")
     else:
-        print(f"  → news: {news_res['rows']} rows ({news_res['this_pull']} this pull), last {news_res['last']}")
+        warn = f" [{news_res['warn']}]" if news_res.get("warn") else ""
+        print(f"  → news: {news_res['rows']} rows ({news_res['this_pull']} this pull), last {news_res['last']}{warn}")
 
     # Intermarket commodities (#3) — only pairs that declare them (AUD/NZD).
     cfg = _instrument_cfg
@@ -637,6 +703,8 @@ def fetch_and_update(force=False):
     if com_yf:
         print(f"Updating commodity yfinance series {list(com_yf)}...")
         for name, info in fetch_commodities_yf(com_yf).items():
+            if info.get("error"):
+                _record_issue("commodity", f"{name} failed: {info['error']}")
             print(f"  → {name}: {info.get('error') or str(info.get('value')) + ' (' + str(info.get('rows')) + ' rows)'}")
 
     # Positioning (COT) → `cot` table; ETF flows → `gld_holdings` table. Both DB-canonical,
@@ -651,12 +719,18 @@ def fetch_and_update(force=False):
                                  "net": cot["net"], "net_prev": cot.get("net_prev")}])
             _db_sync(f"cot:{contract}", lambda r=row, c=contract: db.sync_slice(
                 "cot", {"contract": c}, r))
+        elif isinstance(cot, dict) and "error" in cot:
+            _record_issue("cot", cot["error"])
+            print(f"  → COT skipped: {cot['error']}")
 
     if cfg is None or cfg.ETF_ENABLED:
         print(f"  → ETF flows ({cfg.ETF_TICKER if cfg else 'GLD'})...")
-        fetch_gld_flows()   # syncs the `gld_holdings` table internally
+        etf = fetch_gld_flows()   # syncs the `gld_holdings` table internally
+        if isinstance(etf, dict) and "error" in etf:
+            _record_issue("etf", etf["error"])
+            print(f"  → ETF flows skipped: {etf['error']}")
 
-    print("✅ CSVs ready.")
+    _print_health(start_issue_count)
     return info_15m
 
 
@@ -685,4 +759,20 @@ if __name__ == "__main__":
         if i > 0 and len(to_run) > 1:
             time.sleep(9)
         load_instrument(inst)
-        run(force=args.force)
+        try:
+            run(force=args.force)
+        except Exception as exc:
+            _record_issue("fetch", f"{inst} aborted: {exc}")
+            print(f"❌ {inst.upper()} aborted: {exc}")
+            if len(to_run) == 1:
+                raise
+
+    critical = [issue for issue in RUN_ISSUES if _is_critical_issue(issue)]
+    if RUN_ISSUES and len(to_run) > 1:
+        print(f"\nRun health: issues={len(RUN_ISSUES)}, critical={len(critical)}")
+        for issue in RUN_ISSUES[:20]:
+            print(f"  - {issue}")
+        if len(RUN_ISSUES) > 20:
+            print(f"  - ... {len(RUN_ISSUES) - 20} more")
+    if critical:
+        sys.exit(2)

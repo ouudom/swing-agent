@@ -1,0 +1,5 @@
+[mcp_servers.swing-agent]
+url = "http://100.82.68.62:8766/mcp"
+
+[mcp_servers.swing-agent.http_headers]
+Authorization = "Bearer gicwRxGosPd2kBdccAVoJ8KvcYceAchTe96dZCD0A4ciTs7vcZAE8wBlH8CHK3xl"

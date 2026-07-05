@@ -120,8 +120,10 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
     inval = z["invalidation_level"]
     inval = float(inval) if str(inval) not in ("", "nan") else (top if sign < 0 else bot)
 
-    now = h1["datetime"].iloc[-1]
-    week_live = now < end
+    # Real wall-clock, not last-bar-time: FX has no bars Fri ~21:00-Mon open, so a
+    # last-bar proxy would keep week_live True over the whole weekend gap.
+    wall_now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    week_live = wall_now < end
 
     # invalidation: first D1 close beyond kill level, effective at date+22:00 UTC
     dwin = d1[(d1["datetime"] >= start - pd.Timedelta(days=1))]
