@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useMemo, useState } from "react";
 import { Row } from "./api";
 
 export const DISPLAY_TIME_ZONE = "Asia/Phnom_Penh";
@@ -164,25 +164,98 @@ export function Table({
   rows: Row[];
   cols: [string, string, ((v: unknown, row: Row) => ReactNode)?][];
 }) {
+  const defaultSort = useMemo(() => {
+    const keys = cols.map(([k]) => k);
+    return keys.includes("fill_time") ? "fill_time" : "";
+  }, [cols]);
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState(defaultSort);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? rows.filter((row) => cols.some(([k]) => String(row[k] ?? "").toLowerCase().includes(q)))
+      : rows;
+    const sorted = sortKey
+      ? [...filtered].sort((a, b) => compareValues(a[sortKey], b[sortKey], sortDir))
+      : filtered;
+    return sorted;
+  }, [rows, cols, query, sortKey, sortDir]);
+
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize));
+  const safePage = Math.min(page, pages);
+  const pageRows = shown.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   if (!rows.length) return <p className="empty">No rows.</p>;
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>{cols.map(([k, h]) => <th key={k}>{h}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              {cols.map(([k, , render]) => (
-                <td key={k}>{render ? render(row[k], row) : rcell(k, row[k])}</td>
+    <>
+      <div className="table-tools">
+        <input
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+          placeholder="Query"
+        />
+        <span className="muted">{shown.length}/{rows.length} rows</span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {cols.map(([k, h]) => (
+                <th key={k}>
+                  <button
+                    className="th-sort"
+                    onClick={() => {
+                      setPage(1);
+                      if (sortKey === k) setSortDir(sortDir === "asc" ? "desc" : "asc");
+                      else { setSortKey(k); setSortDir(k === "fill_time" ? "desc" : "asc"); }
+                    }}
+                  >
+                    {h}{sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                  </button>
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {pageRows.map((row, i) => (
+              <tr key={i}>
+                {cols.map(([k, , render]) => (
+                  <td key={k}>{render ? render(row[k], row) : rcell(k, row[k])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-pager">
+        <button disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+        <span className="muted">Page {safePage}/{pages}</span>
+        <button disabled={safePage >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}>Next</button>
+      </div>
+    </>
   );
+}
+
+function compareValues(a: unknown, b: unknown, dir: "asc" | "desc"): number {
+  const av = sortValue(a);
+  const bv = sortValue(b);
+  let out = 0;
+  if (typeof av === "number" && typeof bv === "number") out = av - bv;
+  else out = String(av).localeCompare(String(bv));
+  return dir === "asc" ? out : -out;
+}
+
+function sortValue(v: unknown): number | string {
+  if (v === null || v === undefined || v === "") return "";
+  const n = Number(v);
+  if (Number.isFinite(n) && String(v).trim() !== "") return n;
+  const t = Date.parse(String(v));
+  if (Number.isFinite(t)) return t;
+  return String(v).toLowerCase();
 }
 
 function rcell(key: string, v: unknown): ReactNode {

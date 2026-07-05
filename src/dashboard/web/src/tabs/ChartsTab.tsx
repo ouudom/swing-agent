@@ -19,53 +19,80 @@ const INSTRUMENTS = [
 ];
 const DEFAULT_TFS = ["15min", "1h", "4h", "1day"];
 
+function latestWeekZones(zones: Row[]): Row[] {
+  const weeks = zones.map((z) => String(z.week ?? "")).filter(Boolean);
+  if (!weeks.length) return zones;
+  const sortedWeeks = weeks.sort();
+  const latestWeek = sortedWeeks[sortedWeeks.length - 1];
+  return zones.filter((z) => String(z.week ?? "") === latestWeek);
+}
+
 export function ChartsTab({ health }: { health: Health | null }) {
-  const symbols = usePoll<Row[]>("/api/symbols", 300000);
   const quarantine = usePoll<Row[]>("/api/quarantine", 120000);
 
   const [symbol, setSymbol] = useState<string>("");
-  const [tf, setTf] = useState<string>("");
-  const [ohlc, setOhlc] = useState<Ohlc | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [ohlcByTf, setOhlcByTf] = useState<Record<string, Ohlc | null>>({});
+  const [errByTf, setErrByTf] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
-  // Fixed instrument tabs; API data only narrows available timeframes when present.
   const syms = INSTRUMENTS;
-  const tfs = useMemo(
-    () => {
-      const apiTfs = Array.from(new Set((symbols.data ?? []).filter((r) => String(r.symbol) === symbol).map((r) => String(r.tf))));
-      return apiTfs.length ? apiTfs : DEFAULT_TFS;
-    },
-    [symbols.data, symbol],
+  const selectedFreshness = useMemo(
+    () => (health?.ohlc_freshness ?? []).filter((f) => String(f.symbol) === symbol),
+    [health?.ohlc_freshness, symbol],
   );
+  const latestZones = useMemo(() => {
+    const source = DEFAULT_TFS.map((tf) => ohlcByTf[tf]?.zones ?? []).find((zones) => zones.length) ?? [];
+    return latestWeekZones(source);
+  }, [ohlcByTf]);
 
-  // Default selection once the symbol list loads.
   useEffect(() => {
     if (!symbol && syms.length) setSymbol(syms[0]);
   }, [syms, symbol]);
-  useEffect(() => {
-    if (tfs.length && !tfs.includes(tf)) setTf(tfs.includes("1day") ? "1day" : tfs[0]);
-  }, [tfs, tf]);
 
-  // Load candles whenever symbol/tf changes.
+  // Load all chart timeframes whenever the selected instrument changes.
   useEffect(() => {
-    if (!symbol || !tf) return;
+    if (!symbol) return;
     let live = true;
     setBusy(true);
-    setErr(null);
-    fetchParam<Ohlc>("/api/ohlc", { symbol, tf })
-      .then((d) => live && setOhlc(d))
-      .catch((e) => live && setErr(e instanceof Error ? e.message : String(e)))
-      .finally(() => live && setBusy(false));
+    setOhlcByTf({});
+    setErrByTf({});
+    Promise.all(
+      DEFAULT_TFS.map(async (tf) => {
+        try {
+          const data = await fetchParam<Ohlc>("/api/ohlc", { symbol, tf });
+          return { tf, data, error: null };
+        } catch (e) {
+          return { tf, data: null, error: e instanceof Error ? e.message : String(e) };
+        }
+      }),
+    ).then((results) => {
+      if (!live) return;
+      setOhlcByTf(Object.fromEntries(results.map((r) => [r.tf, r.data])));
+      setErrByTf(Object.fromEntries(results.filter((r) => r.error).map((r) => [r.tf, r.error ?? ""])));
+    }).finally(() => live && setBusy(false));
     return () => { live = false; };
-  }, [symbol, tf]);
+  }, [symbol]);
 
   return (
     <>
-      <Section title="OHLC Data Freshness" right={<Muted n={health?.ohlc_freshness?.length} />}>
-        {health?.ohlc_freshness?.length ? (
+      <div className="chart-symbol-top">
+        <div className="symbol-tabs">
+          {syms.map((s) => (
+            <button
+              key={s}
+              className={`symbol-tab${symbol === s ? " active" : ""}`}
+              onClick={() => setSymbol(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Section title="OHLC Data Freshness" right={<Muted n={selectedFreshness.length} />}>
+        {selectedFreshness.length ? (
           <div className="fresh-strip fresh-strip-panel">
-            {health.ohlc_freshness.map((f, i) => (
+            {selectedFreshness.map((f, i) => (
               <div className="chip chip-sm" key={i}>
                 <span className="chip-k">{String(f.symbol)}·{String(f.tf)}</span>
                 <Pill tone={freshTone(f.latest)}>{fmtAge(f.latest)}</Pill>
@@ -77,38 +104,22 @@ export function ChartsTab({ health }: { health: Health | null }) {
         )}
       </Section>
 
-      <Section
-        title="Candlestick + Zones"
-        right={
-          <div className="ctrls">
-            <select value={tf} onChange={(e) => setTf(e.target.value)}>
-              {tfs.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-        }
-      >
-        {syms.length ? (
-          <div className="symbol-tabs">
-            {syms.map((s) => (
-              <button
-                key={s}
-                className={`symbol-tab${symbol === s ? " active" : ""}`}
-                onClick={() => setSymbol(s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {err ? <Err msg={err} /> : busy || !ohlc ? <Skeleton rows={6} /> : (
-          <Candlestick bars={ohlc.bars} zones={ohlc.zones} symbol={symbol} tf={tf} />
-        )}
-      </Section>
+      {DEFAULT_TFS.map((tf) => {
+        const ohlc = ohlcByTf[tf];
+        const err = errByTf[tf];
+        return (
+          <Section key={tf} title={`${tf} Candlestick + Zones`} right={<span className="muted">{symbol.toUpperCase()}</span>}>
+            {err ? <Err msg={err} /> : busy || !ohlc ? <Skeleton rows={6} /> : (
+              <Candlestick bars={ohlc.bars} zones={latestZones} symbol={symbol} tf={tf} height={360} />
+            )}
+          </Section>
+        );
+      })}
 
-      {ohlc?.zones?.length ? (
-        <Section title={`Zones on ${symbol}`} right={<Muted n={ohlc.zones.length} />}>
+      {latestZones.length ? (
+        <Section title={`Latest-week zones on ${symbol}`} right={<Muted n={latestZones.length} />}>
           <Table
-            rows={ohlc.zones}
+            rows={latestZones}
             cols={[
               ["week", "Week"],
               ["label", "Label"],

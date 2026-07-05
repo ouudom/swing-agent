@@ -45,9 +45,5 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
      kind="macro", body=<updated macro markdown>)`.
    - Never write a derived number anywhere it could go stale — recompute from MCP each time.
 
-6. **git (optional backup only)** — Postgres is now canonical for both numbers and words, so the
-   forecast is durable after step 4+5. If a git mirror is still maintained, commit on `live`;
-   otherwise skip.
-
 If the MCP write in step 4/5 succeeds but a later step fails: do **not** re-call `publish_zone`/
 `write_doc` with mutated state — `write_doc` already versioned the prior body into `doc_history`.

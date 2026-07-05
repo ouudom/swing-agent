@@ -54,6 +54,8 @@ export interface Pnl {
 export interface ZoneTrades {
   overall: Row;
   by_r1: Row[];
+  by_instrument: Row[];
+  scatter: Row[];
   recent: Row[];
 }
 export interface Notifications {

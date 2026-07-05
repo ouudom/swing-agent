@@ -36,7 +36,7 @@ function Chart({ option, height = 300 }: { option: EChartsOption; height?: numbe
 }
 
 // ── Candlestick + volume + zone overlays ────────────────────────────────────
-export function Candlestick({ bars, zones, symbol, tf }: { bars: Row[]; zones: Row[]; symbol: string; tf: string }) {
+export function Candlestick({ bars, zones, symbol, tf, height = 420 }: { bars: Row[]; zones: Row[]; symbol: string; tf: string; height?: number }) {
   if (!bars.length) return <p className="empty">No OHLC for {symbol} {tf}.</p>;
   const dates = bars.map((b) => fmtTime(b.datetime));
   const ohlc = bars.map((b) => [Number(b.open), Number(b.close), Number(b.low), Number(b.high)]);
@@ -90,7 +90,7 @@ export function Candlestick({ bars, zones, symbol, tf }: { bars: Row[]; zones: R
       { type: "bar", xAxisIndex: 1, yAxisIndex: 1, data: vol },
     ],
   };
-  return <Chart option={option} height={420} />;
+  return <Chart option={option} height={height} />;
 }
 
 // ── Equity curve (cumulative R) ─────────────────────────────────────────────

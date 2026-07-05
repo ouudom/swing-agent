@@ -237,12 +237,23 @@ def api_zone_trades():
         "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
         "FROM zone_outcome WHERE r_result IS NOT NULL GROUP BY 1 ORDER BY 1"
     )
+    by_instrument = query(
+        "SELECT instrument, COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS n, "
+        "COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "COALESCE(SUM(r_result), 0) AS total_r, AVG(r_result) AS avg_r "
+        "FROM zone_outcome GROUP BY instrument ORDER BY total_r DESC"
+    )
+    scatter = query(
+        "SELECT zone_id, instrument, direction, mfe_r, mae_r, r_result "
+        "FROM zone_outcome WHERE r_result IS NOT NULL AND mfe_r IS NOT NULL "
+        "ORDER BY exit_time DESC NULLS LAST, resolved_utc DESC LIMIT 300"
+    )
     recent = query(
         "SELECT zone_id, instrument, week, label, direction, status, entry, sl_dist, "
         "r_result, mfe_r, mae_r, fill_time, exit_time "
         "FROM zone_outcome ORDER BY resolved_utc DESC LIMIT 100"
     )
-    return {"overall": overall[0] if overall else {}, "by_r1": by_r1, "recent": recent}
+    return {"overall": overall[0] if overall else {}, "by_r1": by_r1, "by_instrument": by_instrument, "scatter": scatter, "recent": recent}
 
 
 def api_zone_trades_atr():
@@ -260,12 +271,23 @@ def api_zone_trades_atr():
         "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
         "FROM zone_atr_sl_outcome WHERE r_result IS NOT NULL GROUP BY 1 ORDER BY 1"
     )
+    by_instrument = query(
+        "SELECT instrument, COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS n, "
+        "COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "COALESCE(SUM(r_result), 0) AS total_r, AVG(r_result) AS avg_r "
+        "FROM zone_atr_sl_outcome GROUP BY instrument ORDER BY total_r DESC"
+    )
+    scatter = query(
+        "SELECT zone_id, instrument, direction, mfe_r, mae_r, r_result "
+        "FROM zone_atr_sl_outcome WHERE r_result IS NOT NULL AND mfe_r IS NOT NULL "
+        "ORDER BY exit_time DESC NULLS LAST, resolved_utc DESC LIMIT 300"
+    )
     recent = query(
         "SELECT zone_id, instrument, week, label, direction, status, entry, sl_dist, "
         "r_result, mfe_r, mae_r, fill_time, exit_time "
         "FROM zone_atr_sl_outcome ORDER BY resolved_utc DESC LIMIT 100"
     )
-    return {"overall": overall[0] if overall else {}, "by_r1": by_r1, "recent": recent}
+    return {"overall": overall[0] if overall else {}, "by_r1": by_r1, "by_instrument": by_instrument, "scatter": scatter, "recent": recent}
 
 
 def api_macro():
