@@ -147,14 +147,15 @@ MAX_15M_OUTPUTSIZE = 5000  # TD per-call cap; ~52 calendar days of 15M bars
 
 def fetch_15m(force=False):
     last = manifest_last_dt("twelvedata", SYMBOL, "15min")
+    if last is not None and last.tzinfo is not None:
+        last = last.tz_convert("UTC").tz_localize(None)  # TD returns naive UTC strings; compare naive-to-naive
     if force or last is None:
         outputsize = 800
     else:
         # Size the request from the actual gap since the last stored bar, so a multi-day
         # lapse (vacation, dead sandbox) is backfilled instead of leaving a silent hole
         # that corrupts every resampled H4/D1 bar and ATR downstream.
-        last_utc  = last.tz_convert("UTC") if last.tzinfo is not None else last.tz_localize("UTC")
-        gap_secs  = (datetime.now(timezone.utc) - last_utc).total_seconds()
+        gap_secs  = (datetime.now(timezone.utc) - last.tz_localize("UTC")).total_seconds()
         gap_bars  = int(gap_secs / 900) + 50  # +50 margin for weekend/overlap
         if gap_bars > MAX_15M_OUTPUTSIZE:
             raise ValueError(
