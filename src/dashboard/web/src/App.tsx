@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Health, usePoll } from "./api";
-import { TabNav, Pill, fmtTime, freshTone, fmtAge } from "./ui";
+import { TabNav, fmtTime, freshTone } from "./ui";
 import { DashboardTab } from "./tabs/DashboardTab";
 import { ChartsTab } from "./tabs/ChartsTab";
 import { PerformanceTab } from "./tabs/PerformanceTab";
@@ -41,20 +41,9 @@ export function App() {
         </span>
       </header>
 
-      {health.data?.ohlc_freshness?.length ? (
-        <div className="fresh-strip">
-          {health.data.ohlc_freshness.map((f, i) => (
-            <div className="chip chip-sm" key={i}>
-              <span className="chip-k">{String(f.symbol)}·{String(f.tf)}</span>
-              <Pill tone={freshTone(f.latest)}>{fmtAge(f.latest)}</Pill>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       <main>
         {tab === "dashboard" && <DashboardTab health={health} />}
-        {tab === "charts" && <ChartsTab />}
+        {tab === "charts" && <ChartsTab health={health.data} />}
         {tab === "performance" && <PerformanceTab />}
         {tab === "macro" && <MacroTab />}
         {tab === "system" && <SystemTab />}

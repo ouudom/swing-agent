@@ -1,23 +1,69 @@
 import { ReactNode } from "react";
 import { Row } from "./api";
 
+export const DISPLAY_TIME_ZONE = "Asia/Phnom_Penh";
+
 export function fmtNum(v: unknown, dp = 2): string {
   if (v === null || v === undefined || v === "") return "—";
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n.toFixed(dp) : String(v);
 }
 
+function parseTime(v: unknown): Date | null {
+  if (!v) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  const s = String(v);
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(s);
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(s) || hasZone ? s : `${s}Z`;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function partsInDisplayZone(d: Date): Record<string, string> {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: DISPLAY_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d).map((p) => [p.type, p.value]),
+  );
+}
+
 export function fmtTime(v: unknown): string {
-  if (!v) return "—";
-  const d = new Date(String(v));
-  if (Number.isNaN(d.getTime())) return String(v);
-  return d.toISOString().replace("T", " ").slice(0, 16) + "Z";
+  const d = parseTime(v);
+  if (!d) return v ? String(v) : "—";
+  const p = partsInDisplayZone(d);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ICT`;
+}
+
+export function fmtDate(v: unknown): string {
+  const d = parseTime(v);
+  if (!d) return v ? String(v) : "—";
+  const p = partsInDisplayZone(d);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+export function fmtUtcDateTimeParts(date: unknown, timeUtc: unknown): string {
+  if (!date || !timeUtc) return "—";
+  const time = String(timeUtc);
+  if (!/^\d{1,2}:\d{2}/.test(time)) return time;
+  return fmtTime(`${String(date).slice(0, 10)}T${time}Z`);
+}
+
+export function fmtUtcDateParts(date: unknown, timeUtc: unknown): string {
+  if (!date) return "—";
+  const time = String(timeUtc ?? "00:00");
+  if (!/^\d{1,2}:\d{2}/.test(time)) return String(date).slice(0, 10);
+  return fmtDate(`${String(date).slice(0, 10)}T${time}Z`);
 }
 
 export function ageMinutes(v: unknown): number | null {
-  if (!v) return null;
-  const d = new Date(String(v));
-  if (Number.isNaN(d.getTime())) return null;
+  const d = parseTime(v);
+  if (!d) return null;
   return (Date.now() - d.getTime()) / 60000;
 }
 

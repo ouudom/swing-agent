@@ -1,5 +1,5 @@
 import { Health, Notifications, Gates, Row, usePoll } from "../api";
-import { Section, Table, Pill, Kpi, Skeleton, fmtNum, fmtTime } from "../ui";
+import { Section, Table, Pill, Kpi, Skeleton, fmtNum, fmtTime, fmtUtcDateParts, fmtUtcDateTimeParts } from "../ui";
 import { HealthStrip, Muted, Err, statusPill } from "./shared";
 
 export function DashboardTab({ health }: { health: ReturnType<typeof usePoll<Health>> }) {
@@ -108,8 +108,8 @@ export function DashboardTab({ health }: { health: ReturnType<typeof usePoll<Hea
             <Table
               rows={gates.data.econ}
               cols={[
-                ["date", "Date"],
-                ["time_utc", "UTC"],
+                ["date", "Date", (v, row) => fmtUtcDateParts(v, row.time_utc)],
+                ["time_utc", "Time", (v, row) => fmtUtcDateTimeParts(row.date, v)],
                 ["country", "Ctry"],
                 ["event", "Event"],
                 ["impact", "Impact", (v) => <Pill tone={String(v).toUpperCase() === "HIGH" ? "bad" : "warn"}>{String(v)}</Pill>],

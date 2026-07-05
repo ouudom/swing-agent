@@ -222,6 +222,52 @@ def api_buckets():
     return {"ec": ec, "r1": r1, "conviction": conviction, "gate": gate, "scatter": scatter}
 
 
+def api_zone_trades():
+    # Zone-quality replay (zone_outcome, SL = zone width) — full history, not just open.
+    overall = query(
+        "SELECT COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS resolved, "
+        "COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "COALESCE(SUM(r_result), 0) AS total_r, AVG(r_result) AS avg_r "
+        "FROM zone_outcome"
+    )
+    by_r1 = query(
+        "SELECT CASE WHEN zone_confluence < 6 THEN '0 <6' WHEN zone_confluence < 7 THEN '1 6-7' "
+        "WHEN zone_confluence < 8 THEN '2 7-8' WHEN zone_confluence < 9 THEN '3 8-9' ELSE '4 9+' END AS bucket, "
+        "COUNT(*) AS n, COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
+        "FROM zone_outcome WHERE r_result IS NOT NULL GROUP BY 1 ORDER BY 1"
+    )
+    recent = query(
+        "SELECT zone_id, instrument, week, label, direction, status, entry, sl_dist, "
+        "r_result, mfe_r, mae_r, fill_time, exit_time "
+        "FROM zone_outcome ORDER BY resolved_utc DESC LIMIT 100"
+    )
+    return {"overall": overall[0] if overall else {}, "by_r1": by_r1, "recent": recent}
+
+
+def api_zone_trades_atr():
+    # Same replay as api_zone_trades, SL = constitution ATR formula instead of zone width.
+    overall = query(
+        "SELECT COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS resolved, "
+        "COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "COALESCE(SUM(r_result), 0) AS total_r, AVG(r_result) AS avg_r "
+        "FROM zone_atr_sl_outcome"
+    )
+    by_r1 = query(
+        "SELECT CASE WHEN zone_confluence < 6 THEN '0 <6' WHEN zone_confluence < 7 THEN '1 6-7' "
+        "WHEN zone_confluence < 8 THEN '2 7-8' WHEN zone_confluence < 9 THEN '3 8-9' ELSE '4 9+' END AS bucket, "
+        "COUNT(*) AS n, COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
+        "AVG(r_result) AS avg_r, SUM(r_result) AS total_r "
+        "FROM zone_atr_sl_outcome WHERE r_result IS NOT NULL GROUP BY 1 ORDER BY 1"
+    )
+    recent = query(
+        "SELECT zone_id, instrument, week, label, direction, status, entry, sl_dist, "
+        "r_result, mfe_r, mae_r, fill_time, exit_time "
+        "FROM zone_atr_sl_outcome ORDER BY resolved_utc DESC LIMIT 100"
+    )
+    return {"overall": overall[0] if overall else {}, "by_r1": by_r1, "recent": recent}
+
+
 def api_macro():
     return {
         "yield_env": (query("SELECT title, body, updated_utc FROM context_doc WHERE doc_key = 'yield_environment'") or [None])[0],
@@ -425,6 +471,8 @@ API = {
     # Tab: Performance
     "/api/equity": api_equity,
     "/api/buckets": api_buckets,
+    "/api/zone_trades": api_zone_trades,
+    "/api/zone_trades_atr": api_zone_trades_atr,
     # Tab: Macro
     "/api/macro": api_macro,
     "/api/config": api_config,

@@ -51,6 +51,11 @@ export interface Pnl {
   by_instrument: Row[];
   recent: Row[];
 }
+export interface ZoneTrades {
+  overall: Row;
+  by_r1: Row[];
+  recent: Row[];
+}
 export interface Notifications {
   counts: Row[];
   recent: Row[];

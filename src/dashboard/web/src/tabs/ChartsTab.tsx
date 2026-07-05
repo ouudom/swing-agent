@@ -1,10 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ohlc, Row, usePoll, fetchParam } from "../api";
-import { Section, Table, Skeleton, fmtTime } from "../ui";
+import { Health, Ohlc, Row, usePoll, fetchParam } from "../api";
+import { Section, Table, Skeleton, Pill, fmtAge, fmtTime, freshTone } from "../ui";
 import { Candlestick } from "../charts";
 import { Muted, Err } from "./shared";
 
-export function ChartsTab() {
+const INSTRUMENTS = [
+  "xauusd",
+  "eurusd",
+  "gbpusd",
+  "eurgbp",
+  "audusd",
+  "nzdusd",
+  "usdcad",
+  "usdchf",
+  "usdjpy",
+  "eurjpy",
+  "gbpjpy",
+];
+const DEFAULT_TFS = ["15min", "1h", "4h", "1day"];
+
+export function ChartsTab({ health }: { health: Health | null }) {
   const symbols = usePoll<Row[]>("/api/symbols", 300000);
   const quarantine = usePoll<Row[]>("/api/quarantine", 120000);
 
@@ -14,10 +29,13 @@ export function ChartsTab() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Distinct symbol list + tfs available for the chosen symbol.
-  const syms = useMemo(() => Array.from(new Set((symbols.data ?? []).map((r) => String(r.symbol)))), [symbols.data]);
+  // Fixed instrument tabs; API data only narrows available timeframes when present.
+  const syms = INSTRUMENTS;
   const tfs = useMemo(
-    () => Array.from(new Set((symbols.data ?? []).filter((r) => String(r.symbol) === symbol).map((r) => String(r.tf)))),
+    () => {
+      const apiTfs = Array.from(new Set((symbols.data ?? []).filter((r) => String(r.symbol) === symbol).map((r) => String(r.tf))));
+      return apiTfs.length ? apiTfs : DEFAULT_TFS;
+    },
     [symbols.data, symbol],
   );
 
@@ -44,19 +62,44 @@ export function ChartsTab() {
 
   return (
     <>
+      <Section title="OHLC Data Freshness" right={<Muted n={health?.ohlc_freshness?.length} />}>
+        {health?.ohlc_freshness?.length ? (
+          <div className="fresh-strip fresh-strip-panel">
+            {health.ohlc_freshness.map((f, i) => (
+              <div className="chip chip-sm" key={i}>
+                <span className="chip-k">{String(f.symbol)}·{String(f.tf)}</span>
+                <Pill tone={freshTone(f.latest)}>{fmtAge(f.latest)}</Pill>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty">No OHLC rows.</p>
+        )}
+      </Section>
+
       <Section
         title="Candlestick + Zones"
         right={
           <div className="ctrls">
-            <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-              {syms.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
             <select value={tf} onChange={(e) => setTf(e.target.value)}>
               {tfs.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
         }
       >
+        {syms.length ? (
+          <div className="symbol-tabs">
+            {syms.map((s) => (
+              <button
+                key={s}
+                className={`symbol-tab${symbol === s ? " active" : ""}`}
+                onClick={() => setSymbol(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {err ? <Err msg={err} /> : busy || !ohlc ? <Skeleton rows={6} /> : (
           <Candlestick bars={ohlc.bars} zones={ohlc.zones} symbol={symbol} tf={tf} />
         )}

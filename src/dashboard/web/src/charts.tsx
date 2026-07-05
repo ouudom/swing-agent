@@ -3,6 +3,7 @@
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import { Row } from "./api";
+import { fmtDate, fmtTime } from "./ui";
 
 const AXIS = "#8a93a6";
 const GRID = "#2c3444";
@@ -37,7 +38,7 @@ function Chart({ option, height = 300 }: { option: EChartsOption; height?: numbe
 // ── Candlestick + volume + zone overlays ────────────────────────────────────
 export function Candlestick({ bars, zones, symbol, tf }: { bars: Row[]; zones: Row[]; symbol: string; tf: string }) {
   if (!bars.length) return <p className="empty">No OHLC for {symbol} {tf}.</p>;
-  const dates = bars.map((b) => String(b.datetime).replace("T", " ").slice(0, 16));
+  const dates = bars.map((b) => fmtTime(b.datetime));
   const ohlc = bars.map((b) => [Number(b.open), Number(b.close), Number(b.low), Number(b.high)]);
   const vol = bars.map((b) => ({
     value: Number(b.volume ?? 0),
@@ -95,7 +96,7 @@ export function Candlestick({ bars, zones, symbol, tf }: { bars: Row[]; zones: R
 // ── Equity curve (cumulative R) ─────────────────────────────────────────────
 export function EquityCurve({ rows }: { rows: Row[] }) {
   if (!rows.length) return <p className="empty">No resolved trades.</p>;
-  const data = rows.map((r) => [String(r.exit_time).slice(0, 10), Number(r.cum_r ?? 0)]);
+  const data = rows.map((r) => [fmtDate(r.exit_time), Number(r.cum_r ?? 0)]);
   const option: EChartsOption = {
     xAxis: { type: "category", data: data.map((d) => d[0]), axisLine: { lineStyle: { color: GRID } }, axisLabel: { color: AXIS } },
     yAxis: { type: "value", name: "cum R", axisLine: { lineStyle: { color: GRID } }, axisLabel: { color: AXIS }, splitLine: { lineStyle: { color: "#1a2029" } } },

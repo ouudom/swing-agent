@@ -46,6 +46,7 @@ body {
 
 /* Per-instrument freshness strip */
 .fresh-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.fresh-strip-panel { margin-bottom: 0; }
 .chip-sm { padding: 3px 7px; font-size: 11px; }
 
 /* KPI hero row */
@@ -74,6 +75,16 @@ body {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 3px 8px; font-size: 12px;
 }
+.symbol-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+}
+.symbol-tab {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 9px; font-size: 12px; font-weight: 600;
+  cursor: pointer; text-transform: uppercase;
+}
+.symbol-tab:hover { color: var(--text); background: var(--panel-2); }
+.symbol-tab.active { color: var(--text); background: var(--panel-2); border-color: var(--accent); }
 
 /* Config JSON viewer */
 .json { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
