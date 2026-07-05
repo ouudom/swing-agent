@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, time, timezone
 from pathlib import Path
+from typing import Optional
+from zoneinfo import ZoneInfo
 
 SRC_ROOT = Path(__file__).resolve().parents[1]
 if str(SRC_ROOT) not in sys.path:
@@ -10,6 +13,50 @@ if str(SRC_ROOT) not in sys.path:
 
 from engine.commands import INSTRUMENTS
 from pipeline import tasks
+
+MARKET_TZ = ZoneInfo("UTC")
+MARKET_TZ_CONFIG_KEY = "market_timezone"
+MARKET_OPEN_UTC = time(21, 0)
+MARKET_CLOSE_UTC = time(21, 0)
+MARKET_CRON_DAYS = "sun,mon,tue,wed,thu,fri"
+
+
+def load_market_timezone() -> ZoneInfo:
+    try:
+        with tasks._pg_connect() as con:
+            with con.cursor() as cur:
+                cur.execute("SELECT value FROM system_config WHERE key = %s", (MARKET_TZ_CONFIG_KEY,))
+                row = cur.fetchone()
+        tz_name = (row[0] if row else None) or str(MARKET_TZ)
+        return ZoneInfo(tz_name)
+    except Exception:
+        return MARKET_TZ
+
+
+def is_fx_market_open(now_utc: Optional[datetime] = None) -> bool:
+    """Retail FX week: Sunday 21:00 UTC through Friday 21:00 UTC."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    now_market_tz = now_utc.astimezone(load_market_timezone())
+    weekday = now_market_tz.weekday()  # Mon=0 ... Sun=6
+    local_time = now_market_tz.time()
+
+    if weekday <= 3:  # Mon-Thu
+        return True
+    if weekday == 4:  # Friday
+        return local_time < MARKET_CLOSE_UTC
+    if weekday == 6:  # Sunday
+        return local_time >= MARKET_OPEN_UTC
+    return False
+
+
+def run_market_job(job_name: str, instrument: Optional[str] = None, **kwargs):
+    if not is_fx_market_open():
+        now = datetime.now(timezone.utc).isoformat()
+        print(f"skip {job_name}{' '+instrument if instrument else ''}: FX market closed at {now}")
+        return None
+    return tasks.run_job(job_name, instrument, **kwargs)
 
 
 def build_scheduler():
@@ -25,25 +72,17 @@ def build_scheduler():
 
     for instrument in INSTRUMENTS:
         scheduler.add_job(
-            tasks.run_job,
-            CronTrigger(day_of_week="mon-fri", hour="7-20", minute="*/15"),
+            run_market_job,
+            CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/15"),
             args=["brief_refresh", instrument],
-            id=f"brief_refresh_active_{instrument}",
-            max_instances=1,
-            coalesce=True,
-        )
-        scheduler.add_job(
-            tasks.run_job,
-            CronTrigger(day_of_week="mon-fri", hour="21-23,0-6", minute="0,30"),
-            args=["brief_refresh", instrument],
-            id=f"brief_refresh_overnight_{instrument}",
+            id=f"brief_refresh_{instrument}",
             max_instances=1,
             coalesce=True,
         )
 
     scheduler.add_job(
-        tasks.run_job,
-        CronTrigger(day_of_week="mon-fri", minute="*/15"),
+        run_market_job,
+        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/15"),
         args=["check_live_trades"],
         id="check_live_trades",
         max_instances=1,
@@ -53,8 +92,8 @@ def build_scheduler():
     # (:00/:15/:30/:45) so fresh OHLC has landed; the gate's trigger_state dedup makes the
     # runs where no new H1 bar closed cheap no-ops (self-skip, no Claude tokens).
     scheduler.add_job(
-        tasks.run_job,
-        CronTrigger(day_of_week="mon-fri", minute="7,22,37,52"),
+        run_market_job,
+        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="7,22,37,52"),
         args=["fire_validate_trigger"],
         id="fire_validate_trigger",
         max_instances=1,
@@ -115,7 +154,11 @@ def main(argv: list[str]) -> int:
         return 0 if record.status == "ok" else 1
 
     scheduler = build_scheduler()
-    print("swing-agent scheduler starting (UTC)")
+    print(
+        "swing-agent scheduler starting (UTC); "
+        f"market_tz={load_market_timezone().key}; "
+        f"FX market open=Sunday {MARKET_OPEN_UTC} UTC, close=Friday {MARKET_CLOSE_UTC} UTC"
+    )
     scheduler.start()
     return 0
 
