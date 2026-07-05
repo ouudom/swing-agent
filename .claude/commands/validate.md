@@ -28,8 +28,11 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
 4. **Decide, per open zone** — four questions:
    - Forecast still valid? (V1/V1b/V3 hard blocks)
    - Bias flipped? (macro drift vs the `yield_environment` context doc baseline, from
-     `get_context_pack` in step 1)
-   - Re-forecast needed? (mid-week trigger tree)
+     `get_context_pack` in step 1) — if yes, call `queue_notification(event_type="bias_flip",
+     title="{INSTRUMENT} bias flip", message=<what drifted + new bias>, instrument=instrument)`.
+   - Re-forecast needed? (mid-week trigger tree) — if yes, call
+     `queue_notification(event_type="reforecast_triggered", title="{INSTRUMENT} re-forecast
+     triggered", message=<trigger + zone_id>, instrument=instrument, zone_id=zone_id)`.
    - Order limit? — score Entry Confluence (R2, max 10, floor 5.0)
 
 5. **Structured write first, both tools**:

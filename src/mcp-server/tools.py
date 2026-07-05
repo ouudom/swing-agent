@@ -266,10 +266,40 @@ def command_payload(result: commands.CommandResult):
     }
 
 
+GATE_ALERT_TRIGGERS = {
+    "cb_calendar": ["(TODAY)"],
+    "econ_calendar": ["no-trade window"],
+    "intervention_watch": ["🛑", "⚠ CAUTION"],
+    "structured_news_event": ["T4_X=TRUE"],
+    "v1b": ["V1b BREACH"],
+}
+
+
+def _gate_instrument(args: list[str] | None) -> str | None:
+    args = args or []
+    for flag in ("--instrument",):
+        if flag in args:
+            return args[args.index(flag) + 1].lower()
+    return None
+
+
 def run_gate(name: str, args: list[str] | None = None):
     if name not in GATE_ALLOWLIST:
         raise ValueError(f"gate not allowlisted: {name}")
-    return command_payload(commands.pyrun([*GATE_ALLOWLIST[name], *(args or [])], timeout_s=120))
+    result = commands.pyrun([*GATE_ALLOWLIST[name], *(args or [])], timeout_s=120)
+    payload = command_payload(result)
+    stdout = result.stdout or ""
+    triggers = [t for t in GATE_ALERT_TRIGGERS.get(name, []) if t in stdout]
+    if triggers:
+        inst = _gate_instrument(args)
+        queue_notification(
+            event_type=f"gate_{name}",
+            title=f"{(inst or name).upper()} gate alert: {name}",
+            message=stdout.strip()[-1500:],
+            instrument=inst,
+            payload={"gate": name, "triggers": triggers, "args": args or []},
+        )
+    return payload
 
 
 def run_replay(week: str | None = None, instrument: str | None = None):

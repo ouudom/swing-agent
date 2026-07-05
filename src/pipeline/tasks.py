@@ -15,6 +15,49 @@ if str(SRC_ROOT) not in sys.path:
 from engine import commands
 
 
+def _pg_connect():
+    import psycopg
+
+    dsn = os.getenv("DATABASE_URL")
+    if dsn:
+        return psycopg.connect(dsn)
+    return psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "swing_agent"),
+        user=os.getenv("POSTGRES_USER", "swing_agent"),
+        password=os.getenv("POSTGRES_PASSWORD", "swing_agent_dev_password"),
+    )
+
+
+def queue_notification(
+    event_type: str,
+    title: str,
+    message: str,
+    instrument: str | None = None,
+    zone_id: str | None = None,
+    payload: dict | None = None,
+) -> None:
+    """Best-effort notification queue write — never let a notify failure mask the
+    original job error (this runs from the error path itself)."""
+    try:
+        event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{event_type}:{zone_id}:{title}:{message}"))
+        with _pg_connect() as con:
+            with con.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO notification_event (
+                      event_id, event_type, instrument, zone_id, title, message, payload
+                    )
+                    VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)
+                    ON CONFLICT (event_id) DO NOTHING
+                    """,
+                    (event_id, event_type, instrument, zone_id, title, message, json.dumps(payload or {})),
+                )
+    except Exception:
+        pass
+
+
 @dataclass
 class RunRecord:
     run_id: str
@@ -100,6 +143,14 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
         error=error,
     )
     write_jsonl(record)
+    if status == "error":
+        queue_notification(
+            event_type="pipeline_job_error",
+            title=f"pipeline job failed: {job_name}",
+            message=error or tail(result.stderr if result else "", 500) or "non-zero returncode",
+            instrument=instrument,
+            payload={"run_id": run_id, "returncode": record.returncode},
+        )
     return record
 
 
@@ -107,11 +158,54 @@ def refresh_all_briefs() -> list[RunRecord]:
     return [run_job("brief_refresh", instrument=inst) for inst in commands.INSTRUMENTS]
 
 
+def _weekly_digest() -> None:
+    """Nightly digest: today's resolved trades + any instrument/direction pair whose
+    lifetime trade_outcome total_r has gone negative (edge looks DEAD)."""
+    try:
+        with _pg_connect() as con:
+            with con.cursor() as cur:
+                cur.execute(
+                    "SELECT instrument, status, COUNT(*), SUM(r_result) FROM trade_outcome "
+                    "WHERE exit_time::date = (now() AT TIME ZONE 'utc')::date "
+                    "GROUP BY instrument, status ORDER BY instrument, status"
+                )
+                today_rows = cur.fetchall()
+                cur.execute(
+                    "SELECT instrument, direction, COUNT(*) AS n, SUM(r_result) AS total_r "
+                    "FROM trade_outcome GROUP BY instrument, direction "
+                    "HAVING COUNT(*) >= 5 AND SUM(r_result) <= 0 "
+                    "ORDER BY instrument, direction"
+                )
+                dead_rows = cur.fetchall()
+    except Exception:
+        return
+
+    if not today_rows and not dead_rows:
+        return
+
+    lines = []
+    if today_rows:
+        lines.append("Resolved today:")
+        lines += [f"  {inst.upper()} {status}: n={n} total_r={float(tr or 0):+.2f}" for inst, status, n, tr in today_rows]
+    if dead_rows:
+        lines.append("Edge check (n>=5, total_r<=0 — DEAD):")
+        lines += [f"  {inst.upper()} {direction}: n={n} total_r={float(tr):+.2f}" for inst, direction, n, tr in dead_rows]
+
+    queue_notification(
+        event_type="weekly_digest",
+        title="Nightly replay digest",
+        message="\n".join(lines),
+        payload={"date": utc_now().date().isoformat()},
+    )
+
+
 def nightly_replay() -> list[RunRecord]:
-    return [
+    records = [
         run_job("zone_outcomes"),
         run_job("trade_outcome"),
         run_job("calibration"),
         run_job("reconcile"),
         run_job("send_notifications"),
     ]
+    _weekly_digest()
+    return records

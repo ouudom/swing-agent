@@ -28,8 +28,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -49,6 +51,29 @@ def connect():
         user=os.getenv("POSTGRES_USER", "swing_agent"),
         password=os.getenv("POSTGRES_PASSWORD", "swing_agent_dev_password"),
     )
+
+
+def queue_notification(
+    con,
+    event_type: str,
+    title: str,
+    message: str,
+    instrument: str | None = None,
+    zone_id: str | None = None,
+    payload: dict | None = None,
+) -> None:
+    event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{event_type}:{zone_id}:{title}:{message}"))
+    with con.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO notification_event (
+              event_id, event_type, instrument, zone_id, title, message, payload
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)
+            ON CONFLICT (event_id) DO NOTHING
+            """,
+            (event_id, event_type, instrument, zone_id, title, message, json.dumps(payload or {})),
+        )
 
 
 def friday_cutoff(week: str) -> datetime:
@@ -98,6 +123,13 @@ def check_fills(con, instrument: str | None, now: datetime) -> list[str]:
                     "updated_utc=now() WHERE zone_id=%s AND status='ORDER_LIMIT'",
                     (limit, fill_bar["datetime"], r["zone_id"]),
                 )
+            queue_notification(
+                con, "trade_filled",
+                title=f"{r['instrument'].upper()} FILLED {r['zone_id']}",
+                message=f"{r['direction']} @ {limit} ({fill_bar['datetime']})",
+                instrument=r["instrument"], zone_id=r["zone_id"],
+                payload={"entry_price": limit, "fill_time": str(fill_bar["datetime"])},
+            )
             notes.append(f"{r['zone_id']} FILLED @ {limit} ({fill_bar['datetime']})")
         elif now > cutoff:
             with con.cursor() as cur:
@@ -106,6 +138,12 @@ def check_fills(con, instrument: str | None, now: datetime) -> list[str]:
                     "WHERE zone_id=%s AND status='ORDER_LIMIT'",
                     (r["zone_id"],),
                 )
+            queue_notification(
+                con, "trade_expired",
+                title=f"{r['instrument'].upper()} EXPIRED {r['zone_id']}",
+                message="unfilled past Fri 13:00 UTC cutoff",
+                instrument=r["instrument"], zone_id=r["zone_id"],
+            )
             notes.append(f"{r['zone_id']} EXPIRED (unfilled past Fri 13:00 UTC cutoff)")
     return notes
 
@@ -149,6 +187,12 @@ def check_exits(con, instrument: str | None) -> list[str]:
             fav = (hi - entry) if is_long else (entry - lo)
             if not be_armed and fav >= 1.5 * sl_dist:
                 be_armed, stop = True, entry
+                queue_notification(
+                    con, "trade_be_armed",
+                    title=f"{r['instrument'].upper()} BE ARMED {r['zone_id']}",
+                    message=f"+1.5R reached — stop moved to entry {entry}",
+                    instrument=r["instrument"], zone_id=r["zone_id"],
+                )
 
         if exit_status:
             with con.cursor() as cur:
@@ -157,6 +201,13 @@ def check_exits(con, instrument: str | None) -> list[str]:
                     "updated_utc=now() WHERE zone_id=%s AND status='RUNNING'",
                     (exit_status, exit_price, exit_time, r_result, r["zone_id"]),
                 )
+            queue_notification(
+                con, "trade_exit",
+                title=f"{r['instrument'].upper()} {exit_status} {r['zone_id']}",
+                message=f"{r_result:+.2f}R @ {exit_price} ({exit_time})",
+                instrument=r["instrument"], zone_id=r["zone_id"],
+                payload={"exit_status": exit_status, "exit_price": exit_price, "r_result": r_result},
+            )
             notes.append(f"{r['zone_id']} {exit_status} ({r_result:+.2f}R)")
     return notes
 
