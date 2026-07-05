@@ -32,7 +32,10 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
    `confluence_criteria.md`. Publish ≤3 zones (≤1 counter-trend).
 
 4. **Structured write first** — for every published zone, call `publish_zone(...)` via MCP. This
-   is the durable record even if the markdown/git step fails below.
+   is the durable record even if the markdown/git step fails below. Immediately after, call
+   `snapshot_features(zone_id, instrument, event_type="publish", features=<the get_zone_context
+   dict from step 2>)` — freezes the R1 feature vector this zone was actually scored on, for
+   research/backtesting 2-3 months out (Phase 3). One snapshot per published zone.
 
 5. **Write the forecast prose to the DB** (Phase 1 — no wiki/*.md):
    - `write_doc(doc_type="forecast", key="{YYYY-WNN}/{instrument}", body=<full markdown>,

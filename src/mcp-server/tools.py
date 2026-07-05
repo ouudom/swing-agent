@@ -555,6 +555,38 @@ def write_trade_log(
     return {"trade_log": rows[0], "idempotent": True}
 
 
+def snapshot_features(
+    zone_id: str,
+    instrument: str,
+    event_type: str,
+    features: dict,
+    event_utc: str | None = None,
+):
+    """Freeze the feature vector a decision was actually scored on (Phase 3 —
+    research/backtest readiness). Call this once per decision, not per read:
+      - /weekly, right after get_zone_context — event_type="publish", features=that dict.
+      - /validate, right after entry_confluence scoring — event_type="validate",
+        features={"ec_score":..., "components": breakdown["components"], "flags": ...,
+        plus any live compute_indicators/get_zone_context values used for the call}.
+    Idempotent per (zone_id, event_type, event_utc) — safe to re-call on retry."""
+    if not _zone_exists(zone_id):
+        raise ValueError(f"unknown zone_id: {zone_id}")
+    if event_type not in {"publish", "validate"}:
+        raise ValueError("event_type must be 'publish' or 'validate'")
+    ts = event_utc or utc_now()
+    snap_id = f"{zone_id}:{event_type}:{ts}"
+    rows = execute(
+        """
+        INSERT INTO feature_snapshot (snap_id, zone_id, instrument, event_type, event_utc, features)
+        VALUES (%s,%s,%s,%s,%s,%s::jsonb)
+        ON CONFLICT (snap_id) DO UPDATE SET features = EXCLUDED.features
+        RETURNING *
+        """,
+        (snap_id, zone_id, instrument.lower(), event_type, ts, _clean_payload(features)),
+    )
+    return rows[0] if rows else None
+
+
 def queue_notification(
     event_type: str,
     title: str,
@@ -785,6 +817,7 @@ TOOLS = {
     "publish_zone": publish_zone,
     "write_verdict": write_verdict,
     "write_trade_log": write_trade_log,
+    "snapshot_features": snapshot_features,
     "queue_notification": queue_notification,
     "update_checkpoint": update_checkpoint,
 }

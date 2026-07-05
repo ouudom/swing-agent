@@ -382,6 +382,25 @@ CREATE TABLE IF NOT EXISTS intervention_jawboning (
   PRIMARY KEY (pair, event_date, official)
 );
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Phase 3: research/backtest readiness. Freezes the feature vector Claude actually
+-- scored a decision on — R1 (get_zone_context) at publish, R2 (entry_confluence
+-- breakdown) at validate — so a study 2-3 months out joins straight to r_result
+-- without re-deriving every indicator from raw OHLC (slow, and drifts vs what was
+-- actually judged at the time). jsonb `features` so new angles need no migration.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS feature_snapshot (
+  snap_id text PRIMARY KEY,           -- '{zone_id}:{event_type}:{event_utc}'
+  zone_id text NOT NULL REFERENCES zone_ledger(zone_id) ON DELETE CASCADE,
+  instrument text NOT NULL,
+  event_type text NOT NULL,           -- 'publish' (R1/get_zone_context) | 'validate' (R2/EC breakdown)
+  event_utc timestamptz NOT NULL DEFAULT now(),
+  features jsonb NOT NULL,
+  created_utc timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_feature_snapshot_zone ON feature_snapshot (zone_id, event_type);
+CREATE INDEX IF NOT EXISTS ix_feature_snapshot_instrument_event ON feature_snapshot (instrument, event_type, event_utc);
+
 CREATE TABLE IF NOT EXISTS routine_checkpoint (
   routine_name text PRIMARY KEY,
   status text NOT NULL,

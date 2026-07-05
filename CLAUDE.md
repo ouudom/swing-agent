@@ -32,7 +32,7 @@ time. `src/database/init.sql` + `apply_postgres_migrations.py` create the tables
 history only — no wiki/ left to re-import from).
 
 ## MCP — your only gateway to the app
-One transport, 20 tools, one Postgres backend:
+One transport, 21 tools, one Postgres backend:
 - `mcp-native` (native MCP, Streamable HTTP, port 8766, `/mcp` endpoint) — register via
   `claude mcp add --transport http swing-agent http://<host>:8766/mcp --header
   "Authorization: Bearer $MCP_AUTH_TOKEN"`.
@@ -48,6 +48,9 @@ structure/momentum/macro/ATR+SL/COT; replaces the old weekly_pull txt), `sql_que
 idempotent (upsert on natural key). **`write_verdict` hard-rejects `ORDER_LIMIT` if
 `hard_block_flags` is non-empty or `entry_confluence < 5.0`** — the gate is enforced server-side,
 not by your judgment alone.
+`snapshot_features` — freezes the feature vector a decision was scored on (`feature_snapshot`
+table, Phase 3) for research/backtesting once enough weeks accumulate; call once per zone at
+publish (R1) and once per zone at validate (R2), not on every read.
 
 ## Per-Run Discipline — DB is the whole record now
 1. Call MCP to read context (`get_context_pack`, `get_brief`, gates, calibration, news/econ).

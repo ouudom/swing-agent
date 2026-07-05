@@ -1,10 +1,10 @@
 """
 Central-bank decision-date check — mechanical event gate for /weekly + /validate.
 
-Reads scripts/config/cb_calendar_{year}.json (static, rebuilt yearly) and reports every
-scheduled central-bank decision inside the lookahead window, with the instruments each
-one hard-blocks or flags as caution. Web search supplements this; it never replaces it
-(the W24 ECB miss is why this file exists).
+Reads the `cb_calendar` Postgres table (Phase 2 — was cb_calendar_{year}.json, imported once
+via ops/import_calendar_json_to_db.py) and reports every scheduled central-bank decision inside
+the lookahead window, with the instruments each one hard-blocks or flags as caution. Web search
+supplements this; it never replaces it (the W24 ECB miss is why this file exists).
 
 Usage:
     bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py                       # today, 7-day window
@@ -12,30 +12,54 @@ Usage:
     bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py --days 10
     bash scripts/pyrun.sh scripts/gates/check_cb_calendar.py --instrument eurusd   # filter
 
-Exit codes: 0 = ran (events or not). 1 = calendar file missing/unreadable or query
+Exit codes: 0 = ran (events or not). 1 = cb_calendar table empty/unreadable or query
 date beyond a bank's verified_through (calendar can't be trusted for that window).
 """
 
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"  # scripts/config
+SRC_ROOT_ENGINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../src/engine/scripts
+if SRC_ROOT_ENGINE not in sys.path:
+    sys.path.insert(0, SRC_ROOT_ENGINE)
 
 INSTRUMENTS = ["xauusd", "eurusd", "gbpusd", "eurgbp", "audusd", "nzdusd",
                "usdcad", "usdchf", "usdjpy", "eurjpy", "gbpjpy"]
 
 
-def load_calendar(year: int) -> dict:
-    path = CONFIG_DIR / f"cb_calendar_{year}.json"
-    if not path.exists():
-        print(f"❌ Missing {path} — build the {year} calendar before trading (see json _comment).")
+def pg_connect():
+    import psycopg
+
+    dsn = os.getenv("DATABASE_URL")
+    if dsn:
+        return psycopg.connect(dsn)
+    return psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "swing_agent"),
+        user=os.getenv("POSTGRES_USER", "swing_agent"),
+        password=os.getenv("POSTGRES_PASSWORD", "swing_agent_dev_password"),
+    )
+
+
+def load_banks() -> list[dict]:
+    with pg_connect() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                "SELECT bank_code, name, time_note, hard_block, caution, dates, verified_through "
+                "FROM cb_calendar ORDER BY bank_code"
+            )
+            cols = [d.name for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    if not rows:
+        print("❌ cb_calendar table is empty — run ops/import_calendar_json_to_db.py "
+              "(or insert rows) before trading.")
         sys.exit(1)
-    return json.loads(path.read_text())
+    return rows
 
 
 def main() -> int:
@@ -49,19 +73,18 @@ def main() -> int:
              else datetime.now(timezone.utc).date())
     end = start + timedelta(days=args.days)
 
-    cal = load_calendar(start.year)
-    banks = cal["banks"]
+    banks = load_banks()
 
     unverified = []
     hits = []
-    for code, bank in banks.items():
-        vt = datetime.strptime(bank["verified_through"], "%Y-%m-%d").date()
-        if end > vt:
-            unverified.append((code, vt))
+    for bank in banks:
+        vt = bank["verified_through"]
+        if vt and end > vt:
+            unverified.append((bank["bank_code"], vt))
         for d in bank["dates"]:
             dt = datetime.strptime(d["date"], "%Y-%m-%d").date()
             if start <= dt <= end:
-                hits.append((dt, code, bank, d["status"]))
+                hits.append((dt, bank["bank_code"], bank, d["status"]))
 
     if args.instrument:
         hits = [h for h in hits if args.instrument in h[2]["hard_block"] + h[2]["caution"]]
@@ -86,7 +109,7 @@ def main() -> int:
         print()
         for code, vt in unverified:
             print(f"❌ {code}: calendar only verified through {vt} — window extends past it. "
-                  f"Update cb_calendar_{start.year}.json from the bank's official schedule.")
+                  f"Update the cb_calendar table (bank_code={code}) from the bank's official schedule.")
         return 1
     return 0
 

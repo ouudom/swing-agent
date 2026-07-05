@@ -27,7 +27,8 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
 
 4. **Decide, per open zone** — four questions:
    - Forecast still valid? (V1/V1b/V3 hard blocks)
-   - Bias flipped? (macro drift vs `wiki/system/yield_environment.md` baseline)
+   - Bias flipped? (macro drift vs the `yield_environment` context doc baseline, from
+     `get_context_pack` in step 1)
    - Re-forecast needed? (mid-week trigger tree)
    - Order limit? — score Entry Confluence (R2, max 10, floor 5.0)
 
@@ -42,6 +43,11 @@ gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Fo
      write outright once that zone's trade_log row is `RUNNING` or terminal** (filled or closed) —
      that's expected once a real order is live; the checker script owns it from there, not you.
      Skip the call (or just log the rejection) rather than retrying with different values.
+   - Also call `snapshot_features(zone_id, instrument, event_type="validate", features={...})`
+     with the EC breakdown (`entry_confluence` score + `components`/`flags` if you computed it
+     programmatically, or your own R2 rubric scoring) plus the `compute_indicators` values from
+     step 3 — freezes the R2 feature vector this verdict was scored on (Phase 3). One snapshot
+     per zone per validation pass, not per instrument-with-no-open-zone.
 
 6. **Write the validation prose to the DB** (Phase 1 — no wiki/*.md):
    `write_doc(doc_type="validation", key="{YYYY-MM-DD}/{instrument}", body=<full markdown>,

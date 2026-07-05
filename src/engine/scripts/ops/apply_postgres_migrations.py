@@ -194,6 +194,20 @@ DDL = [
       PRIMARY KEY (pair, event_date, official)
     )
     """,
+    # Phase 3: frozen feature vector per decision (R1 at publish, R2 at validate).
+    """
+    CREATE TABLE IF NOT EXISTS feature_snapshot (
+      snap_id text PRIMARY KEY,
+      zone_id text NOT NULL REFERENCES zone_ledger(zone_id) ON DELETE CASCADE,
+      instrument text NOT NULL,
+      event_type text NOT NULL,
+      event_utc timestamptz NOT NULL DEFAULT now(),
+      features jsonb NOT NULL,
+      created_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_feature_snapshot_zone ON feature_snapshot (zone_id, event_type)",
+    "CREATE INDEX IF NOT EXISTS ix_feature_snapshot_instrument_event ON feature_snapshot (instrument, event_type, event_utc)",
 ]
 
 
