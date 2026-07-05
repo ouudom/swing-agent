@@ -23,7 +23,10 @@ Shadow-trade model (simplifications, deliberately documented):
              edge). The `zone_atr_sl_outcome` table instead resolves with
              `sl_mode="atr"`: constitution formula H4_ATR14 if 0.5×D1_ATR14 <
              H4_ATR14 else avg(0.5×D1_ATR14, H4_ATR14); comparison only, does not
-             drive the ledger.
+             drive the ledger. H4_ATR14 is mandatory; D1_ATR14 is optional and
+             falls back to H4-only if unusable (too few bars, or a NaN mean from
+             a gappy D1 bar) — a bad D1 print shouldn't block a zone that has a
+             perfectly good H4 series.
   - Manage = TP +3.0R nearer zone / +4.0R further zone (v3 distance-tiered); SL −1R;
              BE: stop → entry after a bar's MFE reaches +1.5R
              (armed from the NEXT bar). Same-bar SL+TP ambiguity → SL (conservative).
@@ -179,11 +182,14 @@ def resolve_zone(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFr
         h4_trade = h4[(h4["high"] - h4["low"]) >= mbr]
         h4_atr = atr14_before(h4_trade, fill_time)
         # pd.isna catches both "too few bars" (None) and a NaN mean from gappy OHLC.
-        if pd.isna(d1_atr) or pd.isna(h4_atr):
+        # H4 is mandatory (no other SL source); D1 is optional — if it's unusable
+        # (e.g. a NULL-OHLC day poisoning its rolling window) fall back to H4_ATR14
+        # alone rather than blocking the whole zone on a bad D1 bar.
+        if pd.isna(h4_atr):
             out["status"] = "PENDING"
             out["fill_time"] = ""
             return out
-        sl = h4_atr if 0.5 * d1_atr < h4_atr else (0.5 * d1_atr + h4_atr) / 2
+        sl = h4_atr if pd.isna(d1_atr) or 0.5 * d1_atr < h4_atr else (0.5 * d1_atr + h4_atr) / 2
     else:  # "zone" — SL is the zone's own width; entry at near edge → stop at far edge
         sl = top - bot
     out["sl_dist"] = round(sl, 6)
