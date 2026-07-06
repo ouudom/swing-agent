@@ -63,6 +63,27 @@ def run_market_job(job_name: str, instrument: Optional[str] = None, **kwargs):
     return run_logged_job(job_name, instrument, **kwargs)
 
 
+def run_market_cycle():
+    if not is_fx_market_open():
+        log("skip market_cycle: FX market closed")
+        return None
+
+    log("start market_cycle")
+    records = []
+
+    refresh = run_logged_job("brief_refresh", "all")
+    records.append(refresh)
+    if refresh.status == "ok":
+        records.append(run_logged_job("check_live_trades"))
+        records.append(run_logged_job("fire_validate_trigger"))
+    else:
+        log("skip check_live_trades: brief_refresh failed")
+        log("skip fire_validate_trigger: brief_refresh failed")
+    summary = ",".join(f"{r.job_name}{' '+r.instrument if r.instrument else ''}:{r.status}" for r in records)
+    log(f"finish market_cycle: {summary}")
+    return records
+
+
 def run_logged_job(job_name: str, instrument: Optional[str] = None, **kwargs):
     label = f"{job_name}{' '+instrument if instrument else ''}"
     log(f"start {label}")
@@ -94,30 +115,9 @@ def build_scheduler():
     scheduler = BlockingScheduler(timezone="UTC")
 
     scheduler.add_job(
-        run_market_job,
+        run_market_cycle,
         CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/15"),
-        args=["brief_refresh", "all"],
-        id="brief_refresh_all",
-        max_instances=1,
-        coalesce=True,
-    )
-
-    scheduler.add_job(
-        run_market_job,
-        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/15"),
-        args=["check_live_trades"],
-        id="check_live_trades",
-        max_instances=1,
-        coalesce=True,
-    )
-    # Gate in front of the Claude /validate routine. Offset a few minutes past brief_refresh
-    # (:00/:15/:30/:45) so fresh OHLC has landed; the gate's trigger_state dedup makes the
-    # runs where no new H1 bar closed cheap no-ops (self-skip, no Claude tokens).
-    scheduler.add_job(
-        run_market_job,
-        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="7,22,37,52"),
-        args=["fire_validate_trigger"],
-        id="fire_validate_trigger",
+        id="market_cycle",
         max_instances=1,
         coalesce=True,
     )
