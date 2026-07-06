@@ -112,7 +112,7 @@ def fire_validate_trigger(instrument: str | None = None, dry_run: bool = False) 
         args += ["--instrument", instrument]
     if dry_run:
         args.append("--dry-run")
-    return pyrun(args, timeout_s=180)
+    return pyrun(args, timeout_s=600)
 
 
 def reconcile(strict: bool = False) -> CommandResult:

@@ -24,8 +24,10 @@ Skips (no fire, no tokens):
     RUNNING/terminal in `trade_log` (a live trade → the fill/close checker owns it, not
     /validate) or already INVALIDATED.
 
-The trigger POST hits an Anthropic routine `.../fire` endpoint (URL + auth from env). The
-instrument and reason ride in the JSON body so the routine validates just that instrument.
+Default dispatch runs local 9router validate first. 9router has no MCP; the runner builds
+local context and owns DB writes through the same pure tool functions as MCP. If that
+fails, this script falls back to the Anthropic routine `.../fire` endpoint. The instrument
+and reason ride in the JSON body so the cloud routine validates just that instrument.
 
 Env:
   CLAUDE_TRIGGER_URL   full fire URL, e.g.
@@ -33,6 +35,8 @@ Env:
   CLAUDE_TRIGGER_TOKEN bearer/API token for the trigger (falls back to ANTHROPIC_API_KEY)
   CLAUDE_TRIGGER_AUTH_HEADER  header name (default 'x-api-key'; set 'Authorization' if the
                        routine expects 'Bearer <token>')
+  VALIDATE_PRIMARY     9router (default) or cloud
+  NINEROUTER_API_KEY / NINEROUTER_MODEL / NINEROUTER_BASE_URL / NINEROUTER_TIMEOUT_SEC
 
 Usage:
   bash scripts/pyrun.sh scripts/ops/fire_validate_trigger.py --instrument xauusd
@@ -44,6 +48,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -69,6 +74,24 @@ INSTRUMENTS = [
 # a trade_log status here means the zone is live/closed — /validate must NOT be woken for it.
 LOCKED_TRADE_STATUSES = {"RUNNING", "WIN", "LOSS", "BREAKEVEN", "EXPIRED"}
 TRIGGER_TABLE = "trigger_state"
+RUNNER = Path(__file__).with_name("run_validate_9router.py")
+LOG_PATH = Path(os.getenv("VALIDATE_ROUTINE_LOG", ROOT.parent / "logs" / "validate_routine.jsonl"))
+
+
+def log_event(event: str, **fields) -> None:
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "component": "fire_validate_trigger",
+        "event": event,
+        **fields,
+    }
+    print(f"{row['ts']} validate-trigger {event} " + " ".join(f"{k}={v}" for k, v in fields.items()), flush=True)
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+    except Exception:
+        pass
 
 
 def _parse_dt(s):
@@ -177,7 +200,7 @@ def evaluate(inst: str) -> dict:
     return out
 
 
-def fire(inst: str, reason: str, zone_id: str) -> None:
+def _fire_cloud(inst: str, reason: str, zone_id: str) -> str:
     url = os.getenv("CLAUDE_TRIGGER_URL")
     if not url:
         raise SystemExit("CLAUDE_TRIGGER_URL not set — cannot fire the routine trigger")
@@ -192,9 +215,44 @@ def fire(inst: str, reason: str, zone_id: str) -> None:
     req.add_header("Content-Type", "application/json")
     req.add_header(header, auth_value)
     req.add_header("anthropic-version", os.getenv("ANTHROPIC_VERSION", "2023-06-01"))
+    log_event("cloud_fire_start", instrument=inst, reason=reason, zone_id=zone_id)
     with urllib.request.urlopen(req, timeout=30) as resp:
         if resp.status >= 300:
             raise RuntimeError(f"trigger POST {resp.status}: {resp.read()[:400]!r}")
+    log_event("cloud_fire_success", instrument=inst, reason=reason, zone_id=zone_id)
+    return "cloud"
+
+
+def _fire_9router(inst: str, reason: str, zone_id: str, h1_dt: str | None) -> str:
+    cmd = [
+        sys.executable,
+        str(RUNNER),
+        "--instrument", inst,
+        "--reason", reason,
+        "--zone-id", zone_id,
+    ]
+    if h1_dt:
+        cmd += ["--h1-dt", h1_dt]
+    log_event("9router_start", instrument=inst, reason=reason, zone_id=zone_id, h1_dt=h1_dt)
+    proc = subprocess.run(cmd, cwd=ROOT.parent.parent, text=True, capture_output=True, timeout=None)
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip()
+        log_event("9router_failed", instrument=inst, reason=reason, zone_id=zone_id, returncode=proc.returncode)
+        raise RuntimeError(f"9router validate failed: {msg[-1200:]}")
+    log_event("9router_success", instrument=inst, reason=reason, zone_id=zone_id)
+    return "9router"
+
+
+def fire(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
+    primary = os.getenv("VALIDATE_PRIMARY", "9router").lower()
+    if primary == "cloud":
+        return _fire_cloud(inst, reason, zone_id)
+    try:
+        return _fire_9router(inst, reason, zone_id, h1_dt)
+    except Exception as exc:  # noqa: BLE001 — cloud fallback owns live recovery.
+        log_event("fallback_to_cloud", instrument=inst, reason=reason, zone_id=zone_id, error=str(exc))
+        print(f"{inst:<8} 9router failed; falling back to cloud — {exc}")
+        return _fire_cloud(inst, reason, zone_id)
 
 
 def main(argv=None) -> int:
@@ -208,18 +266,23 @@ def main(argv=None) -> int:
     for inst in targets:
         d = evaluate(inst)
         if not d["fire"]:
+            log_event("skip", instrument=inst, skip=d["skip"])
             print(f"{inst:<8} skip — {d['skip']}")
             continue
         tag = f"{inst:<8} FIRE {d['reason']} ({d['zone_id']}) @ H1 {d['h1_dt']}"
+        log_event("fire_candidate", instrument=inst, reason=d["reason"], zone_id=d["zone_id"], h1_dt=d["h1_dt"])
         if args.dry_run:
+            log_event("dry_run_candidate", instrument=inst, reason=d["reason"], zone_id=d["zone_id"], h1_dt=d["h1_dt"])
             print(tag + "  [dry-run]")
             continue
         try:
-            fire(inst, d["reason"], d["zone_id"])
+            route = fire(inst, d["reason"], d["zone_id"], d["h1_dt"])
             _mark_fired(inst, _parse_dt(d["h1_dt"]), d["reason"])
             fired += 1
-            print(tag + "  → posted")
+            log_event("fire_complete", instrument=inst, reason=d["reason"], zone_id=d["zone_id"], route=route)
+            print(tag + f"  → {route}")
         except Exception as exc:  # noqa: BLE001  — fail-soft per instrument; one bad fire ≠ abort the sweep
+            log_event("fire_failed", instrument=inst, reason=d["reason"], zone_id=d["zone_id"], error=str(exc))
             print(f"{inst:<8} FIRE FAILED — {exc}")
     print(f"\n{fired}/{len(targets)} instrument(s) fired")
     return 0
