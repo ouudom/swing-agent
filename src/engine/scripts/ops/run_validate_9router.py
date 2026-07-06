@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,6 +70,56 @@ def _json_trim(obj, limit: int = 9000):
     if len(text) <= limit:
         return obj
     return {"truncated": True, "chars": len(text), "preview": text[:limit]}
+
+
+def _preview(text: str, limit: int = 1200) -> str:
+    value = (text or "").replace("\n", "\\n")
+    return value[:limit]
+
+
+def _load_chat_response(raw: str) -> dict:
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("9router returned empty response body")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Some OpenAI-compatible proxies accidentally stream SSE even when stream=false.
+    data_objects = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line.removeprefix("data:").strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            data_objects.append(json.loads(payload))
+        except json.JSONDecodeError:
+            continue
+    if data_objects:
+        return data_objects[-1]
+    raise ValueError(f"9router returned non-JSON response: {_preview(raw)}")
+
+
+def _load_decision(content: str) -> dict:
+    text = (content or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start:end + 1])
+        raise ValueError(f"9router content was not JSON: {_preview(content)}")
 
 
 def _zone(zone_id: str) -> dict:
@@ -214,11 +265,52 @@ def call_9router(context: dict) -> dict:
     req = urllib.request.Request(base, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
     req.add_header("Authorization", f"Bearer {key}")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8")
-    data = json.loads(raw)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", None)
+            content_type = resp.headers.get("Content-Type", "")
+            raw = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        log_event(
+            "llm_http_error",
+            instrument=trigger["instrument"],
+            reason=trigger["reason"],
+            zone_id=trigger["zone_id"],
+            model=model,
+            status=exc.code,
+            response_preview=_preview(raw),
+        )
+        raise
+
+    log_event(
+        "llm_response_received",
+        instrument=trigger["instrument"],
+        reason=trigger["reason"],
+        zone_id=trigger["zone_id"],
+        model=model,
+        status=status,
+        content_type=content_type,
+        response_chars=len(raw),
+    )
+    try:
+        data = _load_chat_response(raw)
+    except Exception as exc:
+        log_event(
+            "llm_response_parse_failed",
+            instrument=trigger["instrument"],
+            reason=trigger["reason"],
+            zone_id=trigger["zone_id"],
+            model=model,
+            status=status,
+            content_type=content_type,
+            response_chars=len(raw),
+            response_preview=_preview(raw),
+            error=str(exc),
+        )
+        raise
     content = data["choices"][0]["message"]["content"]
-    decision = json.loads(content)
+    decision = _load_decision(content)
     log_event(
         "llm_request_success",
         instrument=trigger["instrument"],

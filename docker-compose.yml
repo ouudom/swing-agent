@@ -45,6 +45,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     working_dir: /app
     command: ["python", "src/pipeline/scheduler.py"]
     volumes:
