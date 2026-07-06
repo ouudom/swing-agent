@@ -131,6 +131,14 @@ def build_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
+        run_market_job,
+        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="*/5"),
+        args=["send_notifications"],
+        id="send_notifications",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         run_logged_job,
         CronTrigger(day_of_week="mon-fri", hour=23, minute=10),
         args=["macro_refresh", "all"],

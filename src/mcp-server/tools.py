@@ -112,6 +112,15 @@ def execute(sql: str, params=()):
     return []
 
 
+def drain_notifications_best_effort(limit: int = 20) -> None:
+    try:
+        from engine.scripts.ops.send_notifications import drain_pending
+
+        drain_pending(limit=limit)
+    except Exception:
+        pass
+
+
 def sql_query(sql: str, limit: int | None = None):
     text = sql.strip()
     if ";" in text.rstrip(";"):
@@ -283,6 +292,17 @@ def _gate_instrument(args: list[str] | None) -> str | None:
     return None
 
 
+def _gate_alert_identity(name: str, inst: str | None, triggers: list[str]) -> tuple[str | None, dict]:
+    if name != "intervention_watch":
+        return None, {}
+
+    severity = "hard_block" if "🛑" in triggers else "caution"
+    now = datetime.now(timezone.utc)
+    bucket = now.strftime("%Y%m%dT%H") if severity == "hard_block" else now.strftime("%Y%m%d")
+    event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"gate:{name}:{inst or name}:{severity}:{bucket}"))
+    return event_id, {"severity": severity, "throttle_bucket": bucket}
+
+
 def run_gate(name: str, args: list[str] | None = None):
     if name not in GATE_ALLOWLIST:
         raise ValueError(f"gate not allowlisted: {name}")
@@ -292,12 +312,14 @@ def run_gate(name: str, args: list[str] | None = None):
     triggers = [t for t in GATE_ALERT_TRIGGERS.get(name, []) if t in stdout]
     if triggers:
         inst = _gate_instrument(args)
+        event_id, alert_meta = _gate_alert_identity(name, inst, triggers)
         queue_notification(
             event_type=f"gate_{name}",
             title=f"{(inst or name).upper()} gate alert: {name}",
             message=stdout.strip()[-1500:],
             instrument=inst,
-            payload={"gate": name, "triggers": triggers, "args": args or []},
+            payload={"gate": name, "triggers": triggers, "args": args or [], **alert_meta},
+            event_id=event_id,
         )
     return payload
 
@@ -641,6 +663,7 @@ def queue_notification(
         """,
         (event_id, event_type, instrument, zone_id, title, message, _clean_payload(payload)),
     )
+    drain_notifications_best_effort()
     return rows[0] if rows else {"event_id": event_id}
 
 

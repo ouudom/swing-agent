@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -74,6 +75,19 @@ def queue_notification(
             """,
             (event_id, event_type, instrument, zone_id, title, message, json.dumps(payload or {})),
         )
+
+
+def drain_notifications_best_effort() -> None:
+    try:
+        subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(__file__), "send_notifications.py"), "--limit", "20"],
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        pass
 
 
 def friday_cutoff(week: str) -> datetime:
@@ -223,6 +237,7 @@ def main(argv: list[str]) -> int:
             notes = check_fills(con, args.instrument, now)
         with con.transaction():
             notes += check_exits(con, args.instrument)
+    drain_notifications_best_effort()
 
     if notes:
         print("\n".join(notes))

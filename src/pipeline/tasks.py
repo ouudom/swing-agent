@@ -59,6 +59,7 @@ def queue_notification(
                     """,
                     (event_id, event_type, instrument, zone_id, title, message, json.dumps(payload or {})),
                 )
+        commands.send_notifications(limit=20)
     except Exception:
         pass
 

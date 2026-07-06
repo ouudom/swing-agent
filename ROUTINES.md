@@ -111,7 +111,8 @@ docker compose exec -T pipeline \
   python src/engine/scripts/ops/send_notifications.py
 ```
 
-The scheduler runs notification send every 5 minutes. If Telegram env is missing, it exits cleanly.
+Enqueue paths best-effort drain pending rows immediately; the scheduler also runs notification send
+every 5 minutes as backup. If Telegram env is missing, it exits cleanly.
 
 ## Cloud Dry Run
 
