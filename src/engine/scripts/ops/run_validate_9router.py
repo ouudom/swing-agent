@@ -100,8 +100,38 @@ def _load_chat_response(raw: str) -> dict:
         except json.JSONDecodeError:
             continue
     if data_objects:
-        return data_objects[-1]
+        content_parts = []
+        last_obj = data_objects[-1]
+        for obj in data_objects:
+            choices = obj.get("choices") or []
+            if not choices:
+                continue
+            choice = choices[0]
+            message = choice.get("message") or {}
+            if message.get("content"):
+                return obj
+            delta = choice.get("delta") or {}
+            if delta.get("content"):
+                content_parts.append(delta["content"])
+        if content_parts:
+            return {"choices": [{"message": {"content": "".join(content_parts)}}]}
+        return last_obj
     raise ValueError(f"9router returned non-JSON response: {_preview(raw)}")
+
+
+def _chat_content(data: dict) -> str:
+    try:
+        choice = data["choices"][0]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError(f"9router response missing choices: {_json_trim(data, 1200)}") from exc
+    message = choice.get("message") or {}
+    content = message.get("content")
+    if content is None:
+        delta = choice.get("delta") or {}
+        content = delta.get("content")
+    if content is None:
+        raise ValueError(f"9router response missing message content: {_json_trim(choice, 1200)}")
+    return str(content)
 
 
 def _load_decision(content: str) -> dict:
@@ -309,7 +339,7 @@ def call_9router(context: dict) -> dict:
             error=str(exc),
         )
         raise
-    content = data["choices"][0]["message"]["content"]
+    content = _chat_content(data)
     decision = _load_decision(content)
     log_event(
         "llm_request_success",
