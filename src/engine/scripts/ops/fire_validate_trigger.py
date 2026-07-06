@@ -27,7 +27,8 @@ Skips (no fire, no tokens):
 Default dispatch runs local 9router validate first. 9router has no MCP; the runner builds
 local context and owns DB writes through the same pure tool functions as MCP. If that
 fails, this script falls back to the Anthropic routine `.../fire` endpoint. The instrument
-and reason ride in the JSON body so the cloud routine validates just that instrument.
+and reason ride inside the `text` field of that fire POST so the cloud routine validates
+just that instrument.
 
 Env:
   CLAUDE_TRIGGER_URL   full fire URL, e.g.
@@ -50,6 +51,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,6 +94,38 @@ def log_event(event: str, **fields) -> None:
             fh.write(json.dumps(row, sort_keys=True, default=str) + "\n")
     except Exception:
         pass
+
+
+def log_fire_attempt(
+    inst: str,
+    reason: str,
+    zone_id: str | None,
+    h1_dt: str | None,
+    route: str | None,
+    status: str,
+    http_status: int | None = None,
+    response_body: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Durable, MCP-queryable record of one dispatch attempt (trigger_fire_log). Unlike
+    `trigger_state` (which sync_slice deletes+replaces per instrument, keeping only the LATEST
+    fire), this is append-only — a lost/failed dispatch stays visible instead of vanishing the
+    moment the next fire overwrites trigger_state. Fail-soft: a logging failure must never
+    break the actual fire."""
+    try:
+        db.append_row("trigger_fire_log", {
+            "instrument": inst,
+            "reason": reason,
+            "zone_id": zone_id or "",
+            "h1_dt": h1_dt or "",
+            "route": route or "",
+            "status": status,
+            "http_status": "" if http_status is None else http_status,
+            "response_body": (response_body or "")[:2000],
+            "error": (error or "")[:2000],
+        })
+    except Exception as exc:  # noqa: BLE001 — diagnostic logging must not break the fire
+        log_event("trigger_fire_log_write_failed", instrument=inst, error=str(exc))
 
 
 def _parse_dt(s):
@@ -200,26 +234,50 @@ def evaluate(inst: str) -> dict:
     return out
 
 
-def _fire_cloud(inst: str, reason: str, zone_id: str) -> str:
+def _fire_cloud(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
     url = os.getenv("CLAUDE_TRIGGER_URL")
     if not url:
-        raise SystemExit("CLAUDE_TRIGGER_URL not set — cannot fire the routine trigger")
+        # RuntimeError, not SystemExit: this must be catchable by fire()/main()'s per-instrument
+        # except Exception, or one misconfigured instrument aborts the whole 11-instrument sweep
+        # (SystemExit is a BaseException and slips straight past `except Exception`).
+        raise RuntimeError("CLAUDE_TRIGGER_URL not set — cannot fire the routine trigger")
     token = os.getenv("CLAUDE_TRIGGER_TOKEN") or os.getenv("ANTHROPIC_API_KEY")
     if not token:
-        raise SystemExit("CLAUDE_TRIGGER_TOKEN / ANTHROPIC_API_KEY not set — cannot authenticate the trigger")
+        raise RuntimeError("CLAUDE_TRIGGER_TOKEN / ANTHROPIC_API_KEY not set — cannot authenticate the trigger")
     header = os.getenv("CLAUDE_TRIGGER_AUTH_HEADER", "x-api-key")
     auth_value = f"Bearer {token}" if header.lower() == "authorization" else token
-    body = json.dumps({"instrument": inst, "reason": reason, "zone_id": zone_id,
-                       "fired_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}).encode()
+    fired_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # The routines "fire" endpoint has no concept of custom top-level fields — it only appends
+    # a `text` string as an extra user turn onto the routine's configured prompt (same contract
+    # as the fire_trigger MCP tool). Sending instrument/reason/zone_id as bare custom keys (the
+    # old behavior) gets them silently dropped: the woken session sees only the static prompt
+    # and has to GUESS which instrument/zone fired. Put the payload inside `text` instead.
+    text = (
+        f"FIRE_PAYLOAD instrument={inst} reason={reason} zone_id={zone_id} fired_utc={fired_utc}"
+        + (f" h1_dt={h1_dt}" if h1_dt else "")
+    )
+    body = json.dumps({"text": text}).encode()
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
     req.add_header(header, auth_value)
     req.add_header("anthropic-version", os.getenv("ANTHROPIC_VERSION", "2023-06-01"))
-    log_event("cloud_fire_start", instrument=inst, reason=reason, zone_id=zone_id)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        if resp.status >= 300:
-            raise RuntimeError(f"trigger POST {resp.status}: {resp.read()[:400]!r}")
-    log_event("cloud_fire_success", instrument=inst, reason=reason, zone_id=zone_id)
+    log_event("cloud_fire_start", instrument=inst, reason=reason, zone_id=zone_id, body=text)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status = resp.status
+            resp_body = resp.read()[:800].decode(errors="replace")
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        resp_body = exc.read()[:800].decode(errors="replace")
+        log_event("cloud_fire_failed", instrument=inst, reason=reason, zone_id=zone_id,
+                  status=status, response=resp_body)
+        log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "failed",
+                         http_status=status, response_body=resp_body, error=str(exc))
+        raise RuntimeError(f"trigger POST {status}: {resp_body!r}") from exc
+    log_event("cloud_fire_success", instrument=inst, reason=reason, zone_id=zone_id,
+              status=status, response=resp_body)
+    log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "ok",
+                     http_status=status, response_body=resp_body)
     return "cloud"
 
 
@@ -238,21 +296,24 @@ def _fire_9router(inst: str, reason: str, zone_id: str, h1_dt: str | None) -> st
     if proc.returncode != 0:
         msg = (proc.stderr or proc.stdout or "").strip()
         log_event("9router_failed", instrument=inst, reason=reason, zone_id=zone_id, returncode=proc.returncode)
+        log_fire_attempt(inst, reason, zone_id, h1_dt, "9router", "failed",
+                         error=msg[-2000:])
         raise RuntimeError(f"9router validate failed: {msg[-1200:]}")
     log_event("9router_success", instrument=inst, reason=reason, zone_id=zone_id)
+    log_fire_attempt(inst, reason, zone_id, h1_dt, "9router", "ok")
     return "9router"
 
 
 def fire(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
     primary = os.getenv("VALIDATE_PRIMARY", "9router").lower()
     if primary == "cloud":
-        return _fire_cloud(inst, reason, zone_id)
+        return _fire_cloud(inst, reason, zone_id, h1_dt)
     try:
         return _fire_9router(inst, reason, zone_id, h1_dt)
     except Exception as exc:  # noqa: BLE001 — cloud fallback owns live recovery.
         log_event("fallback_to_cloud", instrument=inst, reason=reason, zone_id=zone_id, error=str(exc))
         print(f"{inst:<8} 9router failed; falling back to cloud — {exc}")
-        return _fire_cloud(inst, reason, zone_id)
+        return _fire_cloud(inst, reason, zone_id, h1_dt)
 
 
 def main(argv=None) -> int:

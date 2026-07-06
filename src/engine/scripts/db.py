@@ -308,6 +308,23 @@ def sync_slice(table: str, where: dict, df: pd.DataFrame, index_cols=None):
         con.close()
 
 
+def append_row(table: str, row: dict) -> None:
+    """Insert one row into `table` without touching existing rows (append-only audit logs,
+    e.g. trigger_fire_log). Fail-soft is the CALLER's job."""
+    out = pd.DataFrame([row]).astype(str)
+    con = _con()
+    try:
+        if BACKEND == "postgres":
+            with con.transaction():
+                _insert_df(con, table, out)
+        else:
+            if table_exists(con, table):
+                _insert_df(con, table, out)
+                con.commit()
+    finally:
+        con.close()
+
+
 def sync_table(table: str, df: pd.DataFrame):
     """Replace a whole single-file table (gld_holdings/news/econ_calendar) from df.
     Fail-soft is the CALLER's job."""

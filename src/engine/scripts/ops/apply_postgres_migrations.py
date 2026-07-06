@@ -232,6 +232,25 @@ DDL = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_zone_atr_sl_outcome_instrument_week ON zone_atr_sl_outcome (instrument, week)",
+    # Durable, MCP-queryable audit trail for fire_validate_trigger.py — trigger_state only ever
+    # holds the LATEST fire per instrument (sync_slice deletes+replaces), so a lost or silently
+    # failed dispatch (9router error, cloud POST rejected, etc.) leaves no queryable trace.
+    """
+    CREATE TABLE IF NOT EXISTS trigger_fire_log (
+      id bigserial PRIMARY KEY,
+      instrument text NOT NULL,
+      reason text NOT NULL,
+      zone_id text,
+      h1_dt timestamptz,
+      route text,
+      status text NOT NULL,
+      http_status int,
+      response_body text,
+      error text,
+      fired_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_trigger_fire_log_instrument_fired ON trigger_fire_log (instrument, fired_utc)",
 ]
 
 
