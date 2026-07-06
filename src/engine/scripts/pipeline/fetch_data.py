@@ -189,6 +189,9 @@ TF_RESAMPLE = {"1h": "1h", "4h": "4h", "1day": "1D"}
 # ── STEP 1: FETCH 15M + RESAMPLE ─────────────────────────────────────────────
 
 MAX_15M_OUTPUTSIZE = 5000  # TD per-call cap; ~52 calendar days of 15M bars
+ALL_PULL_PROVIDER_LAG_S = 120
+ALL_PULL_MIN_RUNTIME_S = 180
+QUARTER_HOUR_S = 15 * 60
 
 
 def fetch_15m(force=False):
@@ -740,6 +743,27 @@ def run(force=False):
     fetch_and_update(force=force)
 
 
+def wait_for_all_pull_window():
+    """Keep multi-symbol 15M pulls on one provider candle.
+
+    Twelve Data can publish the just-closed 15M candle a little after the wall-clock
+    quarter. If an `all` run starts too early, head symbols keep the previous candle
+    while tail symbols get the new one. If it starts too late, the paced loop can cross
+    the next quarter and split freshness again.
+    """
+    now = datetime.now(timezone.utc)
+    cycle_s = (now.minute % 15) * 60 + now.second
+    if cycle_s < ALL_PULL_PROVIDER_LAG_S:
+        wait_s = ALL_PULL_PROVIDER_LAG_S - cycle_s
+    elif cycle_s > QUARTER_HOUR_S - ALL_PULL_MIN_RUNTIME_S:
+        wait_s = QUARTER_HOUR_S - cycle_s + ALL_PULL_PROVIDER_LAG_S
+    else:
+        return
+    target = datetime.now(timezone.utc) + timedelta(seconds=wait_s)
+    print(f"[all] waiting {wait_s}s for stable 15M provider window (target {target.isoformat()})")
+    time.sleep(wait_s)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="Re-fetch full history")
@@ -749,6 +773,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     to_run = list(REGISTERED_INSTRUMENTS) if args.instrument == "all" else [args.instrument]
+    if args.instrument == "all":
+        wait_for_all_pull_window()
     for i, inst in enumerate(to_run):
         if len(to_run) > 1:
             print(f"\n{'='*54}\n  {inst.upper()}\n{'='*54}")

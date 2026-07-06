@@ -40,6 +40,12 @@ export function ChartsTab({ health }: { health: Health | null }) {
     () => (health?.ohlc_freshness ?? []).filter((f) => String(f.symbol) === symbol),
     [health?.ohlc_freshness, symbol],
   );
+  const freshestOhlc = useMemo(() => {
+    return selectedFreshness.reduce<Row | null>((freshest, row) => {
+      if (!freshest) return row;
+      return new Date(String(row.latest)).getTime() > new Date(String(freshest.latest)).getTime() ? row : freshest;
+    }, null);
+  }, [selectedFreshness]);
   const latestZones = useMemo(() => {
     const source = DEFAULT_TFS.map((tf) => ohlcByTf[tf]?.zones ?? []).find((zones) => zones.length) ?? [];
     return latestWeekZones(source);
@@ -89,15 +95,13 @@ export function ChartsTab({ health }: { health: Health | null }) {
         </div>
       </div>
 
-      <Section title="OHLC Data Freshness" right={<Muted n={selectedFreshness.length} />}>
-        {selectedFreshness.length ? (
+      <Section title="OHLC Data Freshness">
+        {freshestOhlc ? (
           <div className="fresh-strip fresh-strip-panel">
-            {selectedFreshness.map((f, i) => (
-              <div className="chip chip-sm" key={i}>
-                <span className="chip-k">{String(f.symbol)}·{String(f.tf)}</span>
-                <Pill tone={freshTone(f.latest)}>{fmtAge(f.latest)}</Pill>
-              </div>
-            ))}
+            <div className="chip chip-sm">
+              <span className="chip-k">{symbol}</span>
+              <Pill tone={freshTone(freshestOhlc.latest)}>{fmtAge(freshestOhlc.latest)}</Pill>
+            </div>
           </div>
         ) : (
           <p className="empty">No OHLC rows.</p>
