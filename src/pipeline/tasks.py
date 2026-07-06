@@ -78,6 +78,14 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def log(message: str) -> None:
+    print(f"{utc_now().isoformat()} task {message}", flush=True)
+
+
+def job_label(job_name: str, instrument: str | None = None) -> str:
+    return f"{job_name}{' '+instrument if instrument else ''}"
+
+
 def tail(text: str, limit: int = 4000) -> str:
     return text[-limit:] if text else ""
 
@@ -98,6 +106,8 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
     run_id = str(uuid.uuid4())
     result = None
     error = ""
+    label = job_label(job_name, instrument)
+    log(f"start {label} run_id={run_id}")
     try:
         if job_name == "brief_refresh":
             if not instrument:
@@ -143,11 +153,19 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
         error=error,
     )
     write_jsonl(record)
+    log(
+        f"finish {label} run_id={run_id} status={status} "
+        f"duration_s={record.duration_s:.1f} returncode={record.returncode}"
+    )
+    if record.command:
+        log(f"command {label} run_id={run_id}: {record.command}")
     if status == "error":
+        detail = error or tail(result.stderr if result else "", 500) or "non-zero returncode"
+        log(f"error {label} run_id={run_id}: {detail}")
         queue_notification(
             event_type="pipeline_job_error",
             title=f"pipeline job failed: {job_name}",
-            message=error or tail(result.stderr if result else "", 500) or "non-zero returncode",
+            message=detail,
             instrument=instrument,
             payload={"run_id": run_id, "returncode": record.returncode},
         )
@@ -181,6 +199,7 @@ def _weekly_digest() -> None:
         return
 
     if not today_rows and not dead_rows:
+        log("weekly_digest skipped: no resolved trades or dead edges")
         return
 
     lines = []
@@ -197,6 +216,7 @@ def _weekly_digest() -> None:
         message="\n".join(lines),
         payload={"date": utc_now().date().isoformat()},
     )
+    log(f"weekly_digest queued: resolved_rows={len(today_rows)} dead_edges={len(dead_rows)}")
 
 
 def nightly_replay() -> list[RunRecord]:

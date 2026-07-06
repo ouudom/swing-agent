@@ -21,6 +21,10 @@ MARKET_CLOSE_UTC = time(21, 0)
 MARKET_CRON_DAYS = "sun,mon,tue,wed,thu,fri"
 
 
+def log(message: str) -> None:
+    print(f"{datetime.now(timezone.utc).isoformat()} {message}", flush=True)
+
+
 def load_market_timezone() -> ZoneInfo:
     try:
         with tasks._pg_connect() as con:
@@ -52,11 +56,30 @@ def is_fx_market_open(now_utc: Optional[datetime] = None) -> bool:
 
 
 def run_market_job(job_name: str, instrument: Optional[str] = None, **kwargs):
+    label = f"{job_name}{' '+instrument if instrument else ''}"
     if not is_fx_market_open():
-        now = datetime.now(timezone.utc).isoformat()
-        print(f"skip {job_name}{' '+instrument if instrument else ''}: FX market closed at {now}")
+        log(f"skip {label}: FX market closed")
         return None
-    return tasks.run_job(job_name, instrument, **kwargs)
+    return run_logged_job(job_name, instrument, **kwargs)
+
+
+def run_logged_job(job_name: str, instrument: Optional[str] = None, **kwargs):
+    label = f"{job_name}{' '+instrument if instrument else ''}"
+    log(f"start {label}")
+    record = tasks.run_job(job_name, instrument, **kwargs)
+    log(f"finish {label}: status={record.status} duration_s={record.duration_s:.1f} returncode={record.returncode}")
+    return record
+
+
+def run_logged_callable(name: str, fn):
+    log(f"start {name}")
+    result = fn()
+    if isinstance(result, list):
+        summary = ",".join(f"{r.job_name}:{r.status}" for r in result)
+        log(f"finish {name}: {summary}")
+    else:
+        log(f"finish {name}")
+    return result
 
 
 def build_scheduler():
@@ -99,14 +122,15 @@ def build_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
-        tasks.nightly_replay,
+        run_logged_callable,
         CronTrigger(day_of_week="mon-fri", hour=22, minute=0),
+        args=["nightly_replay", tasks.nightly_replay],
         id="nightly_replay",
         max_instances=1,
         coalesce=True,
     )
     scheduler.add_job(
-        tasks.run_job,
+        run_logged_job,
         CronTrigger(day_of_week="mon-fri", minute="*/5"),
         args=["send_notifications"],
         id="send_notifications",
@@ -114,7 +138,7 @@ def build_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
-        tasks.run_job,
+        run_logged_job,
         CronTrigger(day_of_week="mon-fri", hour=23, minute=10),
         args=["reconcile"],
         id="reconcile",
@@ -153,7 +177,7 @@ def main(argv: list[str]) -> int:
         return 0 if record.status == "ok" else 1
 
     scheduler = build_scheduler()
-    print(
+    log(
         "swing-agent scheduler starting (UTC); "
         f"market_tz={load_market_timezone().key}; "
         f"FX market open=Sunday {MARKET_OPEN_UTC} UTC, close=Friday {MARKET_CLOSE_UTC} UTC"
