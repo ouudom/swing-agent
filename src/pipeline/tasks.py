@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import uuid
 from dataclasses import asdict, dataclass
@@ -13,6 +14,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from engine import commands
+
+REDACTION_PATTERNS = [
+    (re.compile(r"([?&](?:api_?key|apikey|token)=)[^&\s]+", re.I), r"\1<redacted>"),
+]
 
 
 def _pg_connect():
@@ -90,6 +95,15 @@ def tail(text: str, limit: int = 4000) -> str:
     return text[-limit:] if text else ""
 
 
+def redact(text: str | None) -> str:
+    if not text:
+        return ""
+    value = str(text)
+    for pattern, repl in REDACTION_PATTERNS:
+        value = pattern.sub(repl, value)
+    return value
+
+
 def log_path() -> Path:
     path = Path(os.getenv("PIPELINE_RUN_LOG", SRC_ROOT / "logs" / "pipeline_run.jsonl"))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,6 +113,54 @@ def log_path() -> Path:
 def write_jsonl(record: RunRecord) -> None:
     with log_path().open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+
+
+def write_postgres(record: RunRecord) -> None:
+    with _pg_connect() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pipeline_run (
+                  run_id, job_name, instrument, status, started_utc, finished_utc,
+                  duration_s, command, returncode, stdout_tail, stderr_tail, error
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (run_id) DO UPDATE SET
+                  job_name = EXCLUDED.job_name,
+                  instrument = EXCLUDED.instrument,
+                  status = EXCLUDED.status,
+                  started_utc = EXCLUDED.started_utc,
+                  finished_utc = EXCLUDED.finished_utc,
+                  duration_s = EXCLUDED.duration_s,
+                  command = EXCLUDED.command,
+                  returncode = EXCLUDED.returncode,
+                  stdout_tail = EXCLUDED.stdout_tail,
+                  stderr_tail = EXCLUDED.stderr_tail,
+                  error = EXCLUDED.error
+                """,
+                (
+                    record.run_id,
+                    record.job_name,
+                    record.instrument,
+                    record.status,
+                    record.started_utc,
+                    record.finished_utc,
+                    record.duration_s,
+                    record.command,
+                    record.returncode,
+                    record.stdout_tail,
+                    record.stderr_tail,
+                    record.error,
+                ),
+            )
+
+
+def write_run_record(record: RunRecord) -> None:
+    try:
+        write_postgres(record)
+    except Exception as exc:
+        print(f"{utc_now().isoformat()} task pipeline_run DB write failed: {redact(str(exc))}", flush=True)
+        write_jsonl(record)
 
 
 def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord:
@@ -116,7 +178,19 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
         elif job_name == "fetch_data":
             if not instrument:
                 raise ValueError("fetch_data requires instrument")
-            result = commands.fetch_data(instrument, force=bool(kwargs.get("force", False)))
+            result = commands.fetch_data(
+                instrument,
+                force=bool(kwargs.get("force", False)),
+                profile=str(kwargs.get("profile", "full")),
+            )
+        elif job_name == "price_refresh":
+            if not instrument:
+                raise ValueError("price_refresh requires instrument")
+            result = commands.price_refresh(instrument, force=bool(kwargs.get("force", False)))
+        elif job_name == "context_refresh":
+            result = commands.context_refresh(force=bool(kwargs.get("force", False)))
+        elif job_name == "macro_refresh":
+            result = commands.macro_refresh(instrument or "all", force=bool(kwargs.get("force", False)))
         elif job_name == "zone_outcomes":
             result = commands.zone_outcomes(kwargs.get("week"), instrument)
         elif job_name == "trade_outcome":
@@ -148,11 +222,11 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
         duration_s=(finished - started).total_seconds(),
         command=" ".join(result.command) if result else "",
         returncode=result.returncode if result else None,
-        stdout_tail=tail(result.stdout) if result else "",
-        stderr_tail=tail(result.stderr) if result else "",
-        error=error,
+        stdout_tail=redact(tail(result.stdout)) if result else "",
+        stderr_tail=redact(tail(result.stderr)) if result else "",
+        error=redact(error),
     )
-    write_jsonl(record)
+    write_run_record(record)
     log(
         f"finish {label} run_id={run_id} status={status} "
         f"duration_s={record.duration_s:.1f} returncode={record.returncode}"
@@ -160,7 +234,12 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
     if record.command:
         log(f"command {label} run_id={run_id}: {record.command}")
     if status == "error":
-        detail = error or tail(result.stderr if result else "", 500) or "non-zero returncode"
+        detail = (
+            record.error
+            or tail(record.stderr_tail, 500)
+            or tail(record.stdout_tail, 500)
+            or "non-zero returncode"
+        )
         log(f"error {label} run_id={run_id}: {detail}")
         queue_notification(
             event_type="pipeline_job_error",

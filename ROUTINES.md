@@ -36,7 +36,7 @@ Retry rule: writes are idempotent (upsert on natural key / doc_key) — re-run w
 Rather than waking Claude every hour for all 11 instruments, the deterministic pipeline decides
 *when* a `/validate` run is worth the tokens and fires the routine trigger itself. The gate
 (`src/engine/scripts/ops/fire_validate_trigger.py`) runs in-container on the scheduler
-(mon-fri, `:07/:22/:37/:52`, a few minutes after each `brief_refresh` OHLC pull) and, per
+(mon-fri, `:02/:17/:32/:47` market cycle, after each `price_refresh` OHLC pull) and, per
 instrument, POSTs the Claude routine trigger **only** when a live zone is actionable:
 
 - **ENTRY** — the latest H1 bar touches a live zone, an E0 fired toward it (1H pin/engulf or

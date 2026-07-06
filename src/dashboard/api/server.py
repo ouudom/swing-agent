@@ -421,7 +421,9 @@ def api_validations():
 def api_pipeline():
     return query(
         "SELECT run_id, job_name, instrument, status, started_utc, finished_utc, "
-        "duration_s, returncode, error, stderr_tail "
+        "duration_s, returncode, "
+        "COALESCE(NULLIF(error, ''), NULLIF(stderr_tail, ''), NULLIF(stdout_tail, ''), '') AS error, "
+        "stdout_tail, stderr_tail "
         "FROM pipeline_run ORDER BY started_utc DESC LIMIT 40"
     )
 

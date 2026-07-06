@@ -71,14 +71,14 @@ def run_market_cycle():
     log("start market_cycle")
     records = []
 
-    refresh = run_logged_job("brief_refresh", "all")
+    refresh = run_logged_job("price_refresh", "all")
     records.append(refresh)
     if refresh.status == "ok":
         records.append(run_logged_job("check_live_trades"))
         records.append(run_logged_job("fire_validate_trigger"))
     else:
-        log("skip check_live_trades: brief_refresh failed")
-        log("skip fire_validate_trigger: brief_refresh failed")
+        log("skip check_live_trades: price_refresh failed")
+        log("skip fire_validate_trigger: price_refresh failed")
     records.append(run_logged_job("send_notifications"))
     summary = ",".join(f"{r.job_name}{' '+r.instrument if r.instrument else ''}:{r.status}" for r in records)
     log(f"finish market_cycle: {summary}")
@@ -123,6 +123,22 @@ def build_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
+        run_logged_job,
+        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute=10),
+        args=["context_refresh"],
+        id="context_refresh",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_logged_job,
+        CronTrigger(day_of_week="mon-fri", hour=23, minute=10),
+        args=["macro_refresh", "all"],
+        id="macro_refresh",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         run_logged_callable,
         CronTrigger(day_of_week="mon-fri", hour=22, minute=0),
         args=["nightly_replay", tasks.nightly_replay],
@@ -140,6 +156,9 @@ def main(argv: list[str]) -> int:
         choices=[
             "brief_refresh",
             "fetch_data",
+            "price_refresh",
+            "context_refresh",
+            "macro_refresh",
             "zone_outcomes",
             "trade_outcome",
             "check_live_trades",
@@ -151,12 +170,19 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--instrument", choices=INSTRUMENTS + ["all"])
     parser.add_argument("--week")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--profile", choices=["intraday", "context", "macro", "full"], default="full")
     args = parser.parse_args(argv)
 
     if args.once:
-        if args.once in {"brief_refresh", "fetch_data"} and not args.instrument:
+        if args.once in {"brief_refresh", "fetch_data", "price_refresh"} and not args.instrument:
             parser.error(f"--instrument required for --once {args.once}")
-        record = tasks.run_job(args.once, instrument=args.instrument, week=args.week, force=args.force)
+        record = tasks.run_job(
+            args.once,
+            instrument=args.instrument,
+            week=args.week,
+            force=args.force,
+            profile=args.profile,
+        )
         print(record)
         return 0 if record.status == "ok" else 1
 

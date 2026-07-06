@@ -19,7 +19,7 @@ content live from the DB.
 Requirements: pip install requests pandas yfinance python-dotenv
 """
 
-import os, sys, argparse, time, importlib
+import os, sys, argparse, time, importlib, re
 import requests, pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
@@ -90,10 +90,21 @@ except Exception:
 RUN_ISSUES = []
 _ISSUE_SEEN = set()
 _SHARED_CACHE = {}
+TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
+REDACTION_PATTERNS = [
+    (re.compile(r"([?&](?:api_?key|apikey|token)=)[^&\s]+", re.I), r"\1<redacted>"),
+]
+
+
+def _redact(value):
+    text = str(value)
+    for pattern, repl in REDACTION_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
 
 
 def _record_issue(kind, detail):
-    issue = f"{kind}: {detail}"
+    issue = f"{kind}: {_redact(detail)}"
     if issue in _ISSUE_SEEN:
         return
     _ISSUE_SEEN.add(issue)
@@ -109,7 +120,7 @@ def _db_sync(label, fn):
         fn()
     except Exception as e:
         _record_issue("db", f"{label} failed: {e}")
-        print(f"  ⚠ DB sync {label} failed: {e}")
+        print(f"  ⚠ DB sync {label} failed: {_redact(e)}")
 
 
 def _date_iso(value):
@@ -122,7 +133,7 @@ def _date_iso(value):
 
 
 def _is_critical_issue(issue):
-    return issue.startswith(("fetch:", "db:", "fred:", "dxy:", "commodity:"))
+    return issue.startswith(("fetch:", "db:", "price:", "dxy:", "commodity:", "fred:"))
 
 
 def _print_health(start_issue_count):
@@ -143,6 +154,25 @@ def _shared_result(name, force, fn):
     if key not in _SHARED_CACHE:
         _SHARED_CACHE[key] = fn()
     return _SHARED_CACHE[key]
+
+
+def _request_get(url, *, params=None, headers=None, timeout=15, retries=3):
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=timeout)
+            if r.status_code in TRANSIENT_HTTP_CODES and attempt < retries:
+                time.sleep(min(2 ** (attempt - 1), 5))
+                continue
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code} {r.reason}")
+            return r
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(min(2 ** (attempt - 1), 5))
+                continue
+            raise last_error
 
 
 load_dotenv()
@@ -263,10 +293,9 @@ def update_fred(force=False, series=None):
         obs_start = ((datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
                      if (force or not last_date) else last_date)
         try:
-            r   = requests.get("https://api.stlouisfed.org/fred/series/observations",
-                               params={"series_id": sid, "observation_start": obs_start,
-                                       "api_key": FRED_KEY, "file_type": "json"}, timeout=15)
-            r.raise_for_status()
+            r = _request_get("https://api.stlouisfed.org/fred/series/observations",
+                             params={"series_id": sid, "observation_start": obs_start,
+                                     "api_key": FRED_KEY, "file_type": "json"}, timeout=15)
             payload = r.json()
             if "error_code" in payload:
                 raise RuntimeError(payload.get("error_message") or payload["error_code"])
@@ -302,8 +331,10 @@ def update_fred(force=False, series=None):
                     index_cols=["series_id", "date"]))
             results.append((sid, len(new), _date_iso(db.last_series_date("macro_series", {"series_id": sid}) if db else "?")))
         except Exception as e:
-            _record_issue("fred", f"{sid} failed: {e}")
-            results.append((sid, f"ERROR: {e}", last_date or "?"))
+            kind = "macro" if last_date else "fred"
+            cached = f"; cached through {last_date}" if last_date else "; no cached value"
+            _record_issue(kind, f"{sid} failed: {e}{cached}")
+            results.append((sid, f"ERROR: {_redact(e)}", last_date or "?"))
     return results
 
 # ── STEP 3: LOAD LOCAL DATA ───────────────────────────────────────────────────
@@ -648,57 +679,67 @@ def fetch_commodities_yf(tickers: dict):
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
-def fetch_and_update(force=False):
-    """Fetch 15M bars, resample, update DB-backed data. Returns brief status lines.
-    Called by both run() and --fetch-only mode (used by /validate)."""
-    if not TWELVE_KEY or not FRED_KEY:
-        print("ERROR: TWELVE_DATA_KEY or FRED_KEY not set in .env"); sys.exit(1)
+PROFILES = {"intraday", "context", "macro", "full"}
 
-    start_issue_count = len(RUN_ISSUES)
+
+def _require_keys(profile):
+    if profile in {"intraday", "full"} and not TWELVE_KEY:
+        print("ERROR: TWELVE_DATA_KEY not set in .env")
+        sys.exit(1)
+    if profile in {"macro", "full"} and not FRED_KEY:
+        print("ERROR: FRED_KEY not set in .env")
+        sys.exit(1)
+
+
+def update_price_data(force=False):
     print("Fetching 15M bars from Twelve Data (1 API call)...")
-    new_15m  = fetch_15m(force=force)
+    new_15m = fetch_15m(force=force)
     info_15m = upsert("twelvedata", SYMBOL, "15min", new_15m)
     print(f"  → {len(new_15m)} new 15M bars | last: {info_15m.get('last_dt', 'n/a (already current)')}")
     print("Resampling 15min → 1h / 4h / 1day...")
     resample_results = resample_all()
     for tf, rows, last in resample_results:
         print(f"  → {tf}: {rows} rows | last: {last}")
+    return info_15m
+
+
+def update_context_data(force=False):
+    print("Updating economic calendar (Forex Factory free JSON)...")
+    econ_res = _shared_result("econ_calendar", force, lambda: fetch_econ_calendar(force=force))
+    if "error" in econ_res:
+        _record_issue("context", econ_res["error"])
+        print(f"  → econ calendar SKIPPED: {_redact(econ_res['error'])} (kept previous DB rows; web-search fallback still applies)")
+    else:
+        warn = f" [{_redact(econ_res['warn'])}]" if econ_res.get("warn") else ""
+        print(f"  → econ calendar: {econ_res['rows']} rows ({econ_res['this_pull']} this pull), last {econ_res['last']}{warn}")
+
+    print("Updating news store (RSS)...")
+    news_res = _shared_result("news", force, lambda: fetch_news(force=force))
+    if "error" in news_res:
+        _record_issue("context", news_res["error"])
+        print(f"  → news SKIPPED: {_redact(news_res['error'])} (kept previous DB rows; web-search fallback still applies)")
+    else:
+        warn = f" [{_redact(news_res['warn'])}]" if news_res.get("warn") else ""
+        print(f"  → news: {news_res['rows']} rows ({news_res['this_pull']} this pull), last {news_res['last']}{warn}")
+
+
+def update_macro_data(force=False):
     print("Updating FRED macro series...")
     fred_results = update_fred(force=force)
     for sid, n, last in fred_results:
         print(f"  → {sid}: {n} new | last: {last}")
+
     print("Updating DXY (ICE 6-currency, yfinance DX-Y.NYB)...")
     dxy_res = _shared_result("dxy", force, lambda: fetch_dxy(force=force))
     if "error" in dxy_res:
         _record_issue("dxy", dxy_res["error"])
-        print(f"  → DXY fetch FAILED: {dxy_res['error']}")
+        print(f"  → DXY fetch FAILED: {_redact(dxy_res['error'])}")
     else:
         print(f"  → DXY: {dxy_res['rows']} rows | last {dxy_res['last_date']} = {dxy_res['value']}")
 
-    # Economic calendar (#1/#2) — shared across instruments, one CSV. Non-fatal on failure.
-    print("Updating economic calendar (Forex Factory free JSON)...")
-    econ_res = _shared_result("econ_calendar", force, lambda: fetch_econ_calendar(force=force))
-    if "error" in econ_res:
-        _record_issue("econ", econ_res["error"])
-        print(f"  → econ calendar SKIPPED: {econ_res['error']} (kept previous DB rows; web-search fallback still applies)")
-    else:
-        warn = f" [{econ_res['warn']}]" if econ_res.get("warn") else ""
-        print(f"  → econ calendar: {econ_res['rows']} rows ({econ_res['this_pull']} this pull), last {econ_res['last']}{warn}")
-
-    # News store (free RSS feeds) — shared across instruments, one CSV. Non-fatal.
-    print("Updating news store (RSS)...")
-    news_res = _shared_result("news", force, lambda: fetch_news(force=force))
-    if "error" in news_res:
-        _record_issue("news", news_res["error"])
-        print(f"  → news SKIPPED: {news_res['error']} (kept previous DB rows; web-search fallback still applies)")
-    else:
-        warn = f" [{news_res['warn']}]" if news_res.get("warn") else ""
-        print(f"  → news: {news_res['rows']} rows ({news_res['this_pull']} this pull), last {news_res['last']}{warn}")
-
-    # Intermarket commodities (#3) — only pairs that declare them (AUD/NZD).
     cfg = _instrument_cfg
     com_fred = list(getattr(cfg, "COMMODITY_FRED", []) or [])
-    com_yf   = dict(getattr(cfg, "COMMODITY_YF", {}) or {})
+    com_yf = dict(getattr(cfg, "COMMODITY_YF", {}) or {})
     if com_fred:
         print(f"Updating commodity FRED series {com_fred}...")
         for sid, n, last in update_fred(force=force, series=com_fred):
@@ -710,8 +751,6 @@ def fetch_and_update(force=False):
                 _record_issue("commodity", f"{name} failed: {info['error']}")
             print(f"  → {name}: {info.get('error') or str(info.get('value')) + ' (' + str(info.get('rows')) + ' rows)'}")
 
-    # Positioning (COT) → `cot` table; ETF flows → `gld_holdings` table. Both DB-canonical,
-    # read back by the MCP get_zone_context tool. Non-fatal on failure.
     if cfg is None or cfg.COT_ENABLED:
         print("  → COT (CFTC)...")
         cot = fetch_cot()
@@ -724,23 +763,44 @@ def fetch_and_update(force=False):
                 "cot", {"contract": c}, r))
         elif isinstance(cot, dict) and "error" in cot:
             _record_issue("cot", cot["error"])
-            print(f"  → COT skipped: {cot['error']}")
+            print(f"  → COT skipped: {_redact(cot['error'])}")
 
     if cfg is None or cfg.ETF_ENABLED:
         print(f"  → ETF flows ({cfg.ETF_TICKER if cfg else 'GLD'})...")
-        etf = fetch_gld_flows()   # syncs the `gld_holdings` table internally
+        etf = fetch_gld_flows()
         if isinstance(etf, dict) and "error" in etf:
             _record_issue("etf", etf["error"])
-            print(f"  → ETF flows skipped: {etf['error']}")
+            print(f"  → ETF flows skipped: {_redact(etf['error'])}")
+
+
+def fetch_and_update(force=False, profile="full"):
+    """Fetch selected data profile into Postgres.
+
+    intraday: strict price freshness path used by market_cycle.
+    context: econ/news only.
+    macro: FRED/DXY/commodities/COT/ETF only.
+    full: legacy all-in-one path.
+    """
+    if profile not in PROFILES:
+        raise ValueError(f"unknown profile: {profile}")
+    _require_keys(profile)
+
+    start_issue_count = len(RUN_ISSUES)
+    info_15m = None
+    if profile in {"intraday", "full"}:
+        info_15m = update_price_data(force=force)
+    if profile in {"macro", "full"}:
+        update_macro_data(force=force)
+    if profile in {"context", "full"}:
+        update_context_data(force=force)
 
     _print_health(start_issue_count)
     return info_15m
 
 
-def run(force=False):
-    """Fetch every source and sync it to the canonical DB. The AI leg reads the result
-    back through MCP (get_zone_context / sql_query) — no snapshot file is written."""
-    fetch_and_update(force=force)
+def run(force=False, profile="full"):
+    """Fetch selected sources and sync them to the canonical DB."""
+    fetch_and_update(force=force, profile=profile)
 
 
 def wait_for_all_pull_window():
@@ -770,10 +830,30 @@ if __name__ == "__main__":
     ap.add_argument("--instrument", default="xauusd",
                     choices=list(REGISTERED_INSTRUMENTS) + ["all"],
                     help="Instrument to run (default: xauusd). 'all' runs every registered instrument.")
+    ap.add_argument("--profile", default="full", choices=sorted(PROFILES),
+                    help="Data profile: intraday=OHLC only, context=econ/news, macro=daily/weekly context, full=legacy all.")
     args = ap.parse_args()
 
+    if args.profile == "context":
+        print("\n======================================================\n  CONTEXT\n======================================================")
+        try:
+            run(force=args.force, profile=args.profile)
+        except Exception as exc:
+            _record_issue("fetch", f"context aborted: {exc}")
+            print(f"❌ CONTEXT aborted: {_redact(exc)}")
+        critical = [issue for issue in RUN_ISSUES if _is_critical_issue(issue)]
+        if RUN_ISSUES:
+            print(f"\nRun health: issues={len(RUN_ISSUES)}, critical={len(critical)}")
+            for issue in RUN_ISSUES[:20]:
+                print(f"  - {issue}")
+            if len(RUN_ISSUES) > 20:
+                print(f"  - ... {len(RUN_ISSUES) - 20} more")
+        if critical:
+            sys.exit(2)
+        sys.exit(0)
+
     to_run = list(REGISTERED_INSTRUMENTS) if args.instrument == "all" else [args.instrument]
-    if args.instrument == "all":
+    if args.instrument == "all" and args.profile in {"intraday", "full"}:
         wait_for_all_pull_window()
     for i, inst in enumerate(to_run):
         if len(to_run) > 1:
@@ -782,14 +862,14 @@ if __name__ == "__main__":
         # it mid-run, so tail instruments error/retry on a later minute and land on a
         # different hourly bar than the head instruments (observed as a multi-hour OHLC
         # freshness stagger across pairs). 9s spacing keeps fetches under the per-minute cap.
-        if i > 0 and len(to_run) > 1:
+        if i > 0 and len(to_run) > 1 and args.profile in {"intraday", "full"}:
             time.sleep(9)
         load_instrument(inst)
         try:
-            run(force=args.force)
+            run(force=args.force, profile=args.profile)
         except Exception as exc:
             _record_issue("fetch", f"{inst} aborted: {exc}")
-            print(f"❌ {inst.upper()} aborted: {exc}")
+            print(f"❌ {inst.upper()} aborted: {_redact(exc)}")
             if len(to_run) == 1:
                 raise
 

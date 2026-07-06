@@ -49,7 +49,11 @@ One-shot dry control:
 
 ```bash
 docker compose run --rm pipeline \
-  python src/pipeline/scheduler.py --once brief_refresh --instrument eurusd
+  python src/pipeline/scheduler.py --once price_refresh --instrument eurusd
+docker compose run --rm pipeline \
+  python src/pipeline/scheduler.py --once context_refresh
+docker compose run --rm pipeline \
+  python src/pipeline/scheduler.py --once macro_refresh --instrument all
 docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once zone_outcomes
 docker compose run --rm pipeline \
@@ -70,8 +74,8 @@ Long-running scheduler:
 docker compose up -d pipeline
 ```
 
-Run records append to `src/logs/pipeline_run.jsonl` by default. This log path is local runtime state
-and ignored by git.
+Run records are written to Postgres `pipeline_run`. If Postgres is unavailable, the scheduler falls
+back to `src/logs/pipeline_run.jsonl` for local diagnosis.
 
 ## MCP Read/Compute Server
 

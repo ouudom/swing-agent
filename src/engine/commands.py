@@ -66,11 +66,19 @@ def pyrun(args: list[str], timeout_s: int | None = None) -> CommandResult:
     return run([sys.executable, *args], timeout_s=timeout_s)
 
 
-def fetch_data(instrument: str, force: bool = False) -> CommandResult:
+def fetch_data(instrument: str, force: bool = False, profile: str = "full") -> CommandResult:
     args = [engine_script("pipeline/fetch_data.py"), "--instrument", instrument]
     if force:
         args.append("--force")
-    return pyrun(args, timeout_s=1800 if instrument == "all" else 900)
+    if profile:
+        args += ["--profile", profile]
+    if profile == "intraday":
+        timeout_s = 900 if instrument == "all" else 180
+    elif profile == "context":
+        timeout_s = 300
+    else:
+        timeout_s = 1800 if instrument == "all" else 900
+    return pyrun(args, timeout_s=timeout_s)
 
 
 def zone_outcomes(week: str | None = None, instrument: str | None = None) -> CommandResult:
@@ -97,6 +105,18 @@ def calibration() -> CommandResult:
 
 def brief_refresh(instrument: str) -> CommandResult:
     return fetch_data(instrument, force=False)
+
+
+def price_refresh(instrument: str, force: bool = False) -> CommandResult:
+    return fetch_data(instrument, force=force, profile="intraday")
+
+
+def context_refresh(force: bool = False) -> CommandResult:
+    return fetch_data("all", force=force, profile="context")
+
+
+def macro_refresh(instrument: str = "all", force: bool = False) -> CommandResult:
+    return fetch_data(instrument, force=force, profile="macro")
 
 
 def check_live_trades(instrument: str | None = None) -> CommandResult:
