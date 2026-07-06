@@ -374,8 +374,10 @@ def fire(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
     log_event("dispatch_selected", instrument=inst, reason=reason, zone_id=zone_id,
               primary=primary, h1_dt=h1_dt)
     if primary == "cloud":
+        log_event("run validate with claude cloud", instrument=inst, reason=reason, zone_id=zone_id, error=str(exc))
         return _fire_cloud(inst, reason, zone_id, h1_dt)
     try:
+        log_event("run validate with 9router", instrument=inst, reason=reason, zone_id=zone_id, error=str(exc))
         return _fire_9router(inst, reason, zone_id, h1_dt)
     except Exception as exc:  # noqa: BLE001 — cloud fallback owns live recovery.
         log_event("fallback_to_cloud", instrument=inst, reason=reason, zone_id=zone_id, error=str(exc))
