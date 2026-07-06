@@ -243,6 +243,9 @@ DDL = [
       zone_id text,
       h1_dt timestamptz,
       route text,
+      validator text,
+      model text,
+      duration_s double precision,
       status text NOT NULL,
       http_status int,
       response_body text,
@@ -250,6 +253,9 @@ DDL = [
       fired_utc timestamptz NOT NULL DEFAULT now()
     )
     """,
+    "ALTER TABLE trigger_fire_log ADD COLUMN IF NOT EXISTS validator text",
+    "ALTER TABLE trigger_fire_log ADD COLUMN IF NOT EXISTS model text",
+    "ALTER TABLE trigger_fire_log ADD COLUMN IF NOT EXISTS duration_s double precision",
     "CREATE INDEX IF NOT EXISTS ix_trigger_fire_log_instrument_fired ON trigger_fire_log (instrument, fired_utc)",
 ]
 

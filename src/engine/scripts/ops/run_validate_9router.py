@@ -332,15 +332,42 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     try:
+        model = os.getenv("NINEROUTER_MODEL", "openai/gpt-4.1-mini")
+        validator = Path(__file__).name
+        log_event(
+            "validator_selected",
+            instrument=args.instrument.lower(),
+            reason=args.reason,
+            zone_id=args.zone_id,
+            validator=validator,
+            provider="9router",
+            model=model,
+        )
         context = build_context(args.instrument.lower(), args.reason, args.zone_id, args.h1_dt)
         if args.dry_run:
             log_event("dry_run_complete", instrument=args.instrument.lower(), reason=args.reason, zone_id=args.zone_id)
-            print(json.dumps({"ok": True, "dry_run": True, "context_keys": sorted(context), "trade_plan": context["trade_plan"]}))
+            print(json.dumps({
+                "ok": True,
+                "dry_run": True,
+                "validator": validator,
+                "provider": "9router",
+                "model": model,
+                "context_keys": sorted(context),
+                "trade_plan": context["trade_plan"],
+            }))
             return 0
         decision = validate_decision(call_9router(context))
         zone = context["zone"]
         result = write_outputs(args.instrument.lower(), zone, context, decision)
-        print(json.dumps({"ok": True, "action": decision["action"], "zone_id": args.zone_id, "result": result}, default=str))
+        print(json.dumps({
+            "ok": True,
+            "validator": validator,
+            "provider": "9router",
+            "model": model,
+            "action": decision["action"],
+            "zone_id": args.zone_id,
+            "result": result,
+        }, default=str))
         return 0
     except Exception as exc:
         log_event("failed", instrument=args.instrument.lower(), reason=args.reason, zone_id=args.zone_id, error=str(exc))

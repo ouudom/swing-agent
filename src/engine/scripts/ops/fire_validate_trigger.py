@@ -51,6 +51,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -103,6 +104,9 @@ def log_fire_attempt(
     h1_dt: str | None,
     route: str | None,
     status: str,
+    validator: str | None = None,
+    model: str | None = None,
+    duration_s: float | None = None,
     http_status: int | None = None,
     response_body: str | None = None,
     error: str | None = None,
@@ -119,6 +123,9 @@ def log_fire_attempt(
             "zone_id": zone_id or "",
             "h1_dt": h1_dt or "",
             "route": route or "",
+            "validator": validator or "",
+            "model": model or "",
+            "duration_s": "" if duration_s is None else round(duration_s, 3),
             "status": status,
             "http_status": "" if http_status is None else http_status,
             "response_body": (response_body or "")[:2000],
@@ -126,6 +133,18 @@ def log_fire_attempt(
         })
     except Exception as exc:  # noqa: BLE001 — diagnostic logging must not break the fire
         log_event("trigger_fire_log_write_failed", instrument=inst, error=str(exc))
+
+
+def _last_json_line(text: str) -> dict:
+    for line in reversed((text or "").splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    return {}
 
 
 def _parse_dt(s):
@@ -235,15 +254,26 @@ def evaluate(inst: str) -> dict:
 
 
 def _fire_cloud(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
+    started = time.monotonic()
+    validator = "claude_code_routine_fire"
+    model = os.getenv("CLAUDE_ROUTINE_MODEL", "cloud-routine")
     url = os.getenv("CLAUDE_TRIGGER_URL")
     if not url:
         # RuntimeError, not SystemExit: this must be catchable by fire()/main()'s per-instrument
         # except Exception, or one misconfigured instrument aborts the whole 11-instrument sweep
         # (SystemExit is a BaseException and slips straight past `except Exception`).
-        raise RuntimeError("CLAUDE_TRIGGER_URL not set — cannot fire the routine trigger")
+        error = "CLAUDE_TRIGGER_URL not set — cannot fire the routine trigger"
+        log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "failed",
+                         validator=validator, model=model, duration_s=time.monotonic() - started,
+                         error=error)
+        raise RuntimeError(error)
     token = os.getenv("CLAUDE_TRIGGER_TOKEN") or os.getenv("ANTHROPIC_API_KEY")
     if not token:
-        raise RuntimeError("CLAUDE_TRIGGER_TOKEN / ANTHROPIC_API_KEY not set — cannot authenticate the trigger")
+        error = "CLAUDE_TRIGGER_TOKEN / ANTHROPIC_API_KEY not set — cannot authenticate the trigger"
+        log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "failed",
+                         validator=validator, model=model, duration_s=time.monotonic() - started,
+                         error=error)
+        raise RuntimeError(error)
     header = os.getenv("CLAUDE_TRIGGER_AUTH_HEADER", "x-api-key")
     auth_value = f"Bearer {token}" if header.lower() == "authorization" else token
     fired_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -261,27 +291,46 @@ def _fire_cloud(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) 
     req.add_header("Content-Type", "application/json")
     req.add_header(header, auth_value)
     req.add_header("anthropic-version", os.getenv("ANTHROPIC_VERSION", "2023-06-01"))
-    log_event("cloud_fire_start", instrument=inst, reason=reason, zone_id=zone_id, body=text)
+    log_event("cloud_fire_start", instrument=inst, reason=reason, zone_id=zone_id,
+              validator=validator, model=model, body=text)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             status = resp.status
             resp_body = resp.read()[:800].decode(errors="replace")
     except urllib.error.HTTPError as exc:
+        duration_s = time.monotonic() - started
         status = exc.code
         resp_body = exc.read()[:800].decode(errors="replace")
         log_event("cloud_fire_failed", instrument=inst, reason=reason, zone_id=zone_id,
-                  status=status, response=resp_body)
+                  status=status, validator=validator, model=model, duration_s=round(duration_s, 3),
+                  response=resp_body)
         log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "failed",
+                         validator=validator, model=model, duration_s=duration_s,
                          http_status=status, response_body=resp_body, error=str(exc))
         raise RuntimeError(f"trigger POST {status}: {resp_body!r}") from exc
+    except urllib.error.URLError as exc:
+        duration_s = time.monotonic() - started
+        log_event("cloud_fire_failed", instrument=inst, reason=reason, zone_id=zone_id,
+                  validator=validator, model=model, duration_s=round(duration_s, 3),
+                  error=str(exc))
+        log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "failed",
+                         validator=validator, model=model, duration_s=duration_s,
+                         error=str(exc))
+        raise RuntimeError(f"trigger POST failed: {exc}") from exc
+    duration_s = time.monotonic() - started
     log_event("cloud_fire_success", instrument=inst, reason=reason, zone_id=zone_id,
-              status=status, response=resp_body)
+              status=status, validator=validator, model=model, duration_s=round(duration_s, 3),
+              response=resp_body)
     log_fire_attempt(inst, reason, zone_id, h1_dt, "cloud", "ok",
+                     validator=validator, model=model, duration_s=duration_s,
                      http_status=status, response_body=resp_body)
     return "cloud"
 
 
 def _fire_9router(inst: str, reason: str, zone_id: str, h1_dt: str | None) -> str:
+    started = time.monotonic()
+    validator = str(RUNNER)
+    model = os.getenv("NINEROUTER_MODEL", "openai/gpt-4.1-mini")
     cmd = [
         sys.executable,
         str(RUNNER),
@@ -291,21 +340,39 @@ def _fire_9router(inst: str, reason: str, zone_id: str, h1_dt: str | None) -> st
     ]
     if h1_dt:
         cmd += ["--h1-dt", h1_dt]
-    log_event("9router_start", instrument=inst, reason=reason, zone_id=zone_id, h1_dt=h1_dt)
+    log_event("9router_start", instrument=inst, reason=reason, zone_id=zone_id,
+              h1_dt=h1_dt, validator=validator, model=model)
     proc = subprocess.run(cmd, cwd=ROOT.parent.parent, text=True, capture_output=True, timeout=None)
+    duration_s = time.monotonic() - started
+    result = _last_json_line(proc.stdout)
+    action = result.get("action")
     if proc.returncode != 0:
         msg = (proc.stderr or proc.stdout or "").strip()
-        log_event("9router_failed", instrument=inst, reason=reason, zone_id=zone_id, returncode=proc.returncode)
+        log_event("9router_failed", instrument=inst, reason=reason, zone_id=zone_id,
+                  returncode=proc.returncode, validator=validator, model=model,
+                  duration_s=round(duration_s, 3))
         log_fire_attempt(inst, reason, zone_id, h1_dt, "9router", "failed",
-                         error=msg[-2000:])
+                         validator=validator, model=model, duration_s=duration_s,
+                         response_body=proc.stdout[-2000:], error=msg[-2000:])
         raise RuntimeError(f"9router validate failed: {msg[-1200:]}")
-    log_event("9router_success", instrument=inst, reason=reason, zone_id=zone_id)
-    log_fire_attempt(inst, reason, zone_id, h1_dt, "9router", "ok")
+    response_summary = json.dumps({
+        "action": action,
+        "zone_id": result.get("zone_id"),
+        "validator": validator,
+        "model": model,
+    }, sort_keys=True)
+    log_event("9router_success", instrument=inst, reason=reason, zone_id=zone_id,
+              validator=validator, model=model, action=action, duration_s=round(duration_s, 3))
+    log_fire_attempt(inst, reason, zone_id, h1_dt, "9router", "ok",
+                     validator=validator, model=model, duration_s=duration_s,
+                     response_body=response_summary)
     return "9router"
 
 
 def fire(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
     primary = os.getenv("VALIDATE_PRIMARY", "9router").lower()
+    log_event("dispatch_selected", instrument=inst, reason=reason, zone_id=zone_id,
+              primary=primary, h1_dt=h1_dt)
     if primary == "cloud":
         return _fire_cloud(inst, reason, zone_id, h1_dt)
     try:
