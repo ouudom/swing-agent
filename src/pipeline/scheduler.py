@@ -79,6 +79,7 @@ def run_market_cycle():
     else:
         log("skip check_live_trades: brief_refresh failed")
         log("skip fire_validate_trigger: brief_refresh failed")
+    records.append(run_logged_job("send_notifications"))
     summary = ",".join(f"{r.job_name}{' '+r.instrument if r.instrument else ''}:{r.status}" for r in records)
     log(f"finish market_cycle: {summary}")
     return records
@@ -129,22 +130,6 @@ def build_scheduler():
         max_instances=1,
         coalesce=True,
     )
-    scheduler.add_job(
-        run_logged_job,
-        CronTrigger(day_of_week="mon-fri", minute="*/5"),
-        args=["send_notifications"],
-        id="send_notifications",
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        run_logged_job,
-        CronTrigger(day_of_week="mon-fri", hour=23, minute=10),
-        args=["reconcile"],
-        id="reconcile",
-        max_instances=1,
-        coalesce=True,
-    )
     return scheduler
 
 
@@ -160,7 +145,6 @@ def main(argv: list[str]) -> int:
             "check_live_trades",
             "fire_validate_trigger",
             "calibration",
-            "reconcile",
             "send_notifications",
         ],
     )

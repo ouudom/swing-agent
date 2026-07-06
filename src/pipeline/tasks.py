@@ -224,8 +224,7 @@ def nightly_replay() -> list[RunRecord]:
         run_job("zone_outcomes"),
         run_job("trade_outcome"),
         run_job("calibration"),
-        run_job("reconcile"),
-        run_job("send_notifications"),
     ]
     _weekly_digest()
+    records.append(run_job("send_notifications"))
     return records
