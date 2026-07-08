@@ -258,6 +258,14 @@ DDL = [
     "ALTER TABLE trigger_fire_log ADD COLUMN IF NOT EXISTS duration_s double precision",
     "CREATE INDEX IF NOT EXISTS ix_trigger_fire_log_instrument_fired ON trigger_fire_log (instrument, fired_utc)",
     """
+    CREATE TABLE IF NOT EXISTS system_config (
+      key text PRIMARY KEY,
+      value text NOT NULL,
+      updated_utc timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "INSERT INTO system_config (key, value) VALUES ('market_timezone', 'UTC') ON CONFLICT (key) DO NOTHING",
+    """
     DO $$
     BEGIN
       IF to_regclass('public.trade_outcome') IS NOT NULL THEN

@@ -435,3 +435,13 @@ CREATE TABLE IF NOT EXISTS routine_checkpoint (
   notes text,
   updated_utc timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS system_config (
+  key text PRIMARY KEY,
+  value text NOT NULL,
+  updated_utc timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO system_config (key, value) VALUES ('market_timezone', 'UTC') ON CONFLICT DO NOTHING;
+
+
