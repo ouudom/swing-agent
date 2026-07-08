@@ -26,7 +26,7 @@ USD_BETA_SIGN = 0
 # ── Low-volatility cross: ATR runs ~half a USD-major (16yr D1 median 60 pips vs GBP 112).
 #    Tighten the flatline filter + invalidation buffer accordingly. ──
 MIN_BAR_RANGE = 0.0002      # 2 pips (vs 3 for majors) — H4 trading-day ATR filter
-V1B_BUFFER    = 0.0004      # 4 pips past zone, 2 consecutive H4 closes (vs 5/6 for majors)
+H4_BUFFER_BREAK_BUFFER = 0.0004  # 4 pips past zone, 2 consecutive H4 closes (vs 5/6 for majors)
 
 # ── PIP ECONOMICS — EURGBP is nominally GBP-quoted (historical note). ──────────
 # OPERATOR DECISION (historical): treat the same as the majors — NO GBP→USD conversion.

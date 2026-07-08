@@ -1,5 +1,5 @@
 """
-Intraday H4 invalidation checker — constitution rule V1b (markdown-only, no DB).
+Intraday H4 invalidation checker — constitution rule H4_BUFFER_BREAK (markdown-only, no DB).
 
 Checks the last 2 H4 closes in data/twelvedata/{instrument}/4h.csv against a
 trading-zone extreme. Flags 2 consecutive H4 closes >BUFFER past the zone =
@@ -93,7 +93,7 @@ def main():
 
     # Display precision: $-scale (gold, >=500) 2dp; JPY-scale (20–500, pip 0.01) 3dp; pip-scale FX 5dp.
     dp = 2 if args.zone_top >= 500 else (3 if args.zone_top >= 20 else 5)
-    print(f"V1b check ({args.instrument}{' ' + args.label if args.label else ''}) — buffer {buf:.{dp}f} ({buf_src})")
+    print(f"H4_BUFFER_BREAK check ({args.instrument}{' ' + args.label if args.label else ''}) — buffer {buf:.{dp}f} ({buf_src})")
     print(f"  last 2 H4 closes: "
           f"{c1:.{dp}f} @ {last2['datetime'].iloc[0]} | "
           f"{c2:.{dp}f} @ {last2['datetime'].iloc[1]}")
@@ -105,7 +105,7 @@ def main():
         extreme = args.zone_bottom - buf
         breach = (c1 < extreme) and (c2 < extreme)
 
-    verdict = "❌ V1b BREACH — INVALIDATE" if breach else "✅ intact"
+    verdict = "❌ H4_BUFFER_BREAK BREACH — INVALIDATE" if breach else "✅ intact"
     print(f"{args.direction} zone {args.zone_bottom:.{dp}f}–{args.zone_top:.{dp}f} | "
           f"threshold {extreme:.{dp}f} | {verdict}")
 

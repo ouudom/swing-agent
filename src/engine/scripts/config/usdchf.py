@@ -35,8 +35,8 @@ FOREIGN_CCY       = "CH"
 # Direction (DGS2, flipped) + US carry (DFF) + risk (VIXCLS). No commodity leg.
 FRED_SERIES = FRED_SERIES_BASE
 
-# V1b invalidation buffer: placeholder 4 pips — calibrate from ATR after backfill.
-V1B_BUFFER = 0.0004
+# H4_BUFFER_BREAK invalidation buffer: placeholder 4 pips — calibrate from ATR after backfill.
+H4_BUFFER_BREAK_BUFFER = 0.0004
 
 # COT — CME Swiss franc futures (6S). INVERTED (see _fx_usd_base).
 COT_CONTRACT_NAME = "SWISS FRANC - CHICAGO MERCANTILE EXCHANGE"

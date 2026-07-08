@@ -257,6 +257,58 @@ DDL = [
     "ALTER TABLE trigger_fire_log ADD COLUMN IF NOT EXISTS model text",
     "ALTER TABLE trigger_fire_log ADD COLUMN IF NOT EXISTS duration_s double precision",
     "CREATE INDEX IF NOT EXISTS ix_trigger_fire_log_instrument_fired ON trigger_fire_log (instrument, fired_utc)",
+    """
+    DO $$
+    BEGIN
+      IF to_regclass('public.trade_outcome') IS NOT NULL THEN
+        UPDATE trade_outcome
+        SET block_flags = replace(
+          replace(
+            replace(block_flags, 'V1b', 'H4_BUFFER_BREAK'),
+            'V1', 'DAILY_ZONE_BREAK'
+          ),
+          'V3', 'CENTRAL_BANK_CARRY_RISK'
+        )
+        WHERE block_flags ~ '(^|,)(V1|V1b|V3)(,|$)';
+      END IF;
+
+      IF to_regclass('public.validation_verdict') IS NOT NULL THEN
+        UPDATE validation_verdict
+        SET hard_block_flags = replace(
+          replace(
+            replace(hard_block_flags, 'V1b', 'H4_BUFFER_BREAK'),
+            'V1', 'DAILY_ZONE_BREAK'
+          ),
+          'V3', 'CENTRAL_BANK_CARRY_RISK'
+        )
+        WHERE hard_block_flags ~ '(^|,)(V1|V1b|V3)(,|$)';
+      END IF;
+
+      IF to_regclass('public.trade_log') IS NOT NULL THEN
+        UPDATE trade_log
+        SET hard_block_flags = replace(
+          replace(
+            replace(hard_block_flags, 'V1b', 'H4_BUFFER_BREAK'),
+            'V1', 'DAILY_ZONE_BREAK'
+          ),
+          'V3', 'CENTRAL_BANK_CARRY_RISK'
+        )
+        WHERE hard_block_flags ~ '(^|,)(V1|V1b|V3)(,|$)';
+      END IF;
+
+      IF to_regclass('public.feature_snapshot') IS NOT NULL THEN
+        UPDATE feature_snapshot
+        SET features = replace(
+          replace(
+            replace(features::text, '"V1b"', '"H4_BUFFER_BREAK"'),
+            '"V1"', '"DAILY_ZONE_BREAK"'
+          ),
+          '"V3"', '"CENTRAL_BANK_CARRY_RISK"'
+        )::jsonb
+        WHERE features::text ~ '"(V1|V1b|V3)"';
+      END IF;
+    END $$;
+    """,
 ]
 
 

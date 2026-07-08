@@ -194,7 +194,15 @@ def build(df: pd.DataFrame, min_n: int) -> tuple[str, dict]:
 # EC (Entry Confluence) buckets — parallel to R1_BUCKETS. (label, lo_incl, hi_excl).
 EC_BUCKETS = [(">=8.0", 8.0, 99.0), ("6.5–7.9", 6.5, 8.0),
               ("5.0–6.4", 5.0, 6.5), ("<5.0 (sub-floor)", 0.0, 5.0)]
-GATES = ["V1", "V1b", "V3", "VETO_VIX", "VETO_ADX", "INTERVENTION", "EC_FLOOR"]
+GATES = [
+    "DAILY_ZONE_BREAK",
+    "H4_BUFFER_BREAK",
+    "CENTRAL_BANK_CARRY_RISK",
+    "VETO_VIX",
+    "VETO_ADX",
+    "INTERVENTION",
+    "EC_FLOOR",
+]
 
 
 def build_r2(min_n: int) -> tuple[str, dict]:

@@ -48,8 +48,8 @@ FOREIGN_CCY       = "JP"
 # Direction (DGS2, flipped) + US carry (DFF) + risk (VIXCLS). No commodity leg.
 FRED_SERIES = FRED_SERIES_BASE
 
-# V1b invalidation buffer: placeholder 4 pips JPY-scale — calibrate from ATR after backfill.
-V1B_BUFFER = 0.04
+# H4_BUFFER_BREAK invalidation buffer: placeholder 4 pips JPY-scale — calibrate from ATR after backfill.
+H4_BUFFER_BREAK_BUFFER = 0.04
 
 # COT — CME Japanese yen futures (6J). INVERTED (see _fx_usd_base).
 COT_CONTRACT_NAME = "JAPANESE YEN - CHICAGO MERCANTILE EXCHANGE"

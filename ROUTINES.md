@@ -42,8 +42,9 @@ instrument, POSTs the Claude routine trigger **only** when a live zone is action
 - **ENTRY** — the latest H1 bar touches a live zone, an E0 fired toward it (1H pin/engulf or
   RSI-reclaim), and the programmatic Entry Confluence ≥ `EC_GATE` (4.0 — deliberately below the
   real 5.0 floor; the scorer is provisional, so gate loose and let Claude make the real call).
-- **INVAL** — a V1 (D1 close beyond the zone) or V1b (two consecutive H4 closes beyond
-  zone+ATR buffer) fired on a still-live zone → wake `/validate` to formally INVALIDATE it.
+- **INVAL** — a DAILY_ZONE_BREAK (D1 close beyond the zone) or H4_BUFFER_BREAK (two consecutive
+  H4 closes beyond zone+ATR buffer) fired on a still-live zone → wake `/validate` to formally
+  INVALIDATE it.
 
 It skips (no fire, no tokens) when: no new H1 bar closed since the last fire for that instrument
 (`trigger_state` dedup — this also silences weekends/holidays); no OPEN zone; or every zone is

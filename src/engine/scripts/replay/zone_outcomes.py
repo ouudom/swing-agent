@@ -6,8 +6,8 @@ ATR formula). Only `zone_outcome` drives `zone_ledger.status`.
 
 Answers, per published zone: did price reach it? would the trade have won? After
 ~20–30 resolved zones the summary shows whether Zone Confluence 8.0 actually beats
-6.5 — outcome data the live system cannot produce while zones get blocked (V3) or
-expire untouched.
+6.5 — outcome data the live system cannot produce while zones get blocked
+(CENTRAL_BANK_CARRY_RISK) or expire untouched.
 
 Shadow-trade model (simplifications, deliberately documented):
   - Fill   = first 1H bar inside the trade week (Mon 00:00 → Fri 22:00 UTC) whose

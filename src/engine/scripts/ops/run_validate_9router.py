@@ -248,7 +248,15 @@ def _prompt(context: dict) -> list[dict]:
     schema = {
         "action": "ORDER_LIMIT | NO_TRADE | INVALIDATED | HARD_BLOCK | CANCEL_LIMIT",
         "entry_confluence": "number or null",
-        "hard_block_flags": ["V1", "V1b", "V3", "VETO_VIX", "VETO_ADX", "INTERVENTION", "EC_FLOOR"],
+        "hard_block_flags": [
+            "DAILY_ZONE_BREAK",
+            "H4_BUFFER_BREAK",
+            "CENTRAL_BANK_CARRY_RISK",
+            "VETO_VIX",
+            "VETO_ADX",
+            "INTERVENTION",
+            "EC_FLOOR",
+        ],
         "reason": "short DB reason",
         "validation_body": "markdown validation note",
         "ec_breakdown": {"components": {}, "flags": []},

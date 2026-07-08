@@ -117,7 +117,7 @@ def build_scheduler():
 
     scheduler.add_job(
         run_market_cycle,
-        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="2,17,32,47"),
+        CronTrigger(day_of_week=MARKET_CRON_DAYS, minute="2,22,42"),
         id="market_cycle",
         max_instances=1,
         coalesce=True,

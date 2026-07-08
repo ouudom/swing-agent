@@ -43,9 +43,9 @@ TICK_MULTIPLIER = 650      # static ≈ 100000/USDJPY(154); legacy price-scale c
                            # (quote ccy = JPY, so pip value depends on USDJPY, NOT EURJPY)
 MIN_BAR_RANGE   = 0.03     # 3 JPY pips (vestigial — session filter is time-based)
 
-# V1b invalidation buffer: ~10% median H4 ATR (median 42 JPY pips, 2020-2026 trading-day
+# H4_BUFFER_BREAK invalidation buffer: ~10% median H4 ATR (median 42 JPY pips, 2020-2026 trading-day
 # bars) → 4 pips. Same value as usdjpy despite 1.37× D1 ATR — H4 medians land close.
-V1B_BUFFER = 0.04
+H4_BUFFER_BREAK_BUFFER = 0.04
 
 # ── Macro: one-leg cross — EUR (ECBDFR) only; JPY has NO daily FRED series ──
 # MACRO_MODE="cross_rate_diff" with RATE_GBP=None → pipeline runs the EUR-leg-only branch

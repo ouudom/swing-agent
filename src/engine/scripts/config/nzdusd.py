@@ -29,8 +29,8 @@ FOREIGN_CCY       = "NZ"
 # Direction (DGS2) + US carry (DFF) + risk (VIXCLS) only — no foreign daily series.
 FRED_SERIES = FRED_SERIES_BASE
 
-# V1b invalidation buffer: set after ATR calibration (NZD vol ≈ AUD; placeholder 4 pips).
-V1B_BUFFER = 0.0004
+# H4_BUFFER_BREAK invalidation buffer: set after ATR calibration (NZD vol ≈ AUD; placeholder 4 pips).
+H4_BUFFER_BREAK_BUFFER = 0.0004
 
 # COT — CME NZ dollar futures (6N). Exact CFTC name verified in local archive.
 COT_CONTRACT_NAME = "NZ DOLLAR - CHICAGO MERCANTILE EXCHANGE"

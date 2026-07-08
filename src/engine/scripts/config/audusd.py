@@ -30,8 +30,8 @@ FOREIGN_CCY       = "AU"
 # Direction (DGS2) + US carry (DFF) + risk (VIXCLS) only — no foreign daily series.
 FRED_SERIES = FRED_SERIES_BASE
 
-# V1b invalidation buffer: 4 pips past zone, 2 consecutive H4 closes (ATR ≈ 80% of EURUSD's 5-pip).
-V1B_BUFFER = 0.0004
+# H4_BUFFER_BREAK invalidation buffer: 4 pips past zone, 2 consecutive H4 closes (ATR ≈ 80% of EURUSD's 5-pip).
+H4_BUFFER_BREAK_BUFFER = 0.0004
 
 # COT — CME Australian dollar futures (6A).
 COT_CONTRACT_NAME = "AUSTRALIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE"

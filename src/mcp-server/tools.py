@@ -52,7 +52,7 @@ GATE_ALLOWLIST = {
     "cb_calendar": ["src/engine/scripts/gates/check_cb_calendar.py"],
     "intervention_watch": ["src/engine/scripts/gates/check_intervention_watch.py"],
     "structured_news_event": ["src/engine/scripts/gates/check_structured_news_event.py"],
-    "v1b": ["src/engine/scripts/gates/check_intraday_invalidation.py"],
+    "h4_buffer_break": ["src/engine/scripts/gates/check_intraday_invalidation.py"],
 }
 
 
@@ -280,7 +280,7 @@ GATE_ALERT_TRIGGERS = {
     "econ_calendar": ["no-trade window"],
     "intervention_watch": ["🛑", "⚠ CAUTION"],
     "structured_news_event": ["T4_X=TRUE"],
-    "v1b": ["V1b BREACH"],
+    "h4_buffer_break": ["H4_BUFFER_BREAK BREACH"],
 }
 
 

@@ -67,7 +67,8 @@ COLUMNS = [
     # a window so the hourly /validate re-derivation stops whipsawing the limit. Only --e0 (anchor
     # = confirmation close) locks; a no-E0 50%-midpoint ORDER_LIMIT re-derives hourly. The lock
     # holds the limit/EC against soft downgrades (E0 lapse, EC dip) but yields to upgrades (a
-    # stronger E0 re-anchors + resets the clock) and to hard blocks (V1/V1b/V3/intervention → cleared).
+    # stronger E0 re-anchors + resets the clock) and to hard blocks
+    # (DAILY_ZONE_BREAK/H4_BUFFER_BREAK/CENTRAL_BANK_CARRY_RISK/intervention → cleared).
     "anchor_set_utc", "anchor_locked_until",
 ]
 
@@ -175,7 +176,8 @@ def cmd_validate(args):
       • HOLD     — an equal/lower EC E0 ORDER_LIMIT, a no-E0 (midpoint) ORDER_LIMIT, or a
                    *soft* NO_TRADE (E0 lapse / EC below floor), is ignored: the locked
                    limit/EC/verdict stay put.
-      • CANCEL   — INVALIDATED, or NO_TRADE with --hard-block (V1/V1b/V3/intervention/
+      • CANCEL   — INVALIDATED, or NO_TRADE with --hard-block
+                   (DAILY_ZONE_BREAK/H4_BUFFER_BREAK/CENTRAL_BANK_CARRY_RISK/intervention/
                    macro-flip), always wins: it writes the verdict and clears the lock.
     The lock never extends past the daily 21:00 UTC expiry (clamped).
     """
@@ -294,7 +296,9 @@ def main():
     v.add_argument("--limit-price", type=float, default=None, help="order-limit price on ORDER_LIMIT")
     v.add_argument("--date", default="", help="validation date YYYY-MM-DD (default: today UTC)")
     v.add_argument("--hard-block", action="store_true",
-                   help="cancel + clear any anchor lock (V1/V1b/V3/intervention/macro-flip). "
+                   help="cancel + clear any anchor lock "
+                        "(DAILY_ZONE_BREAK/H4_BUFFER_BREAK/CENTRAL_BANK_CARRY_RISK/"
+                        "intervention/macro-flip). "
                         "Use on a NO_TRADE that is a hard gate, not a soft EC/E0 downgrade.")
     v.add_argument("--e0", action="store_true",
                    help="confirmation candle (E0) present — the anchor is a confirmation CLOSE, not a "

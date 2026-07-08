@@ -13,7 +13,9 @@ table cannot:
      before the Fri-13:00-UTC weekend-gap cancel. The midpoint-fill vs offset-limit-fill
      gap is the D030 "offset too wide / missed the fill" signal.
 
-  2. GATE ACCURACY — every hard gate (V1/V1b/V3/VETO-VIX/VETO-ADX/INTERVENTION/EC-floor)
+  2. GATE ACCURACY — every hard gate
+     (DAILY_ZONE_BREAK/H4_BUFFER_BREAK/CENTRAL_BANK_CARRY_RISK/VETO-VIX/VETO-ADX/
+     INTERVENTION/EC-floor)
      is evaluated at the fill bar as a NON-SUPPRESSING FLAG: the trade fills regardless so
      we get the counterfactual R, then score whether refusing it was CORRECT_SAVED
      (would-be ≤0R) or COSTLY_REFUSED (would-be >0R). This replaces `zone_outcome`'s
@@ -91,7 +93,7 @@ OUT_COLS = [
     "block_flags", "block_verdict", "resolved_utc",
 ]
 
-# currency → central bank (for the V3 carry flag)
+# currency → central bank (for the CENTRAL_BANK_CARRY_RISK flag)
 _CCY_BANK = {"USD": "FOMC", "EUR": "ECB", "GBP": "BOE", "JPY": "BOJ",
              "AUD": "RBA", "NZD": "RBNZ", "CAD": "BOC", "CHF": "SNB"}
 # instrument → the two currencies it touches
@@ -101,19 +103,19 @@ _PAIR_CCY = {
     "usdcad": ["USD", "CAD"], "usdchf": ["USD", "CHF"], "usdjpy": ["USD", "JPY"],
     "eurjpy": ["EUR", "JPY"], "gbpjpy": ["GBP", "JPY"],
 }
-# V1b buffer beyond the zone edge: ATR-scaled (0.25 x H4 ATR14), matching check_intraday_invalidation.py —
+# H4_BUFFER_BREAK buffer beyond the zone edge: ATR-scaled (0.25 x H4 ATR14), matching check_intraday_invalidation.py —
 # a static pip buffer whipsaws high-ATR pairs (gbpjpy's old static 0.05 cancelled a
 # running +1R W27 winner on a 20-pip H4 breach, ~2-3% of its H4 ATR).
-_V1B_ATR_MULT = 0.25
-_V1B_FALLBACK = {"xauusd": 5.0}     # used only when H4 history is too short for ATR14
+_H4_BUFFER_BREAK_ATR_MULT = 0.25
+_H4_BUFFER_BREAK_FALLBACK = {"xauusd": 5.0}     # used only when H4 history is too short for ATR14
 _JPY = {"usdjpy", "eurjpy", "gbpjpy"}
 
 
-def v1b_buffer(inst: str, h4: pd.DataFrame, cutoff: pd.Timestamp) -> float:
+def h4_buffer_break_buffer(inst: str, h4: pd.DataFrame, cutoff: pd.Timestamp) -> float:
     a = atr14_before(h4, cutoff)
     if a is not None:
-        return _V1B_ATR_MULT * a
-    return _V1B_FALLBACK.get(inst, 0.05 if inst in _JPY else 0.0006)
+        return _H4_BUFFER_BREAK_ATR_MULT * a
+    return _H4_BUFFER_BREAK_FALLBACK.get(inst, 0.05 if inst in _JPY else 0.0006)
 
 
 def _cb_dates(year: int) -> dict:
@@ -128,7 +130,7 @@ def _cb_dates(year: int) -> dict:
 
 
 def cb_in_carry(inst: str, fill_time: pd.Timestamp, carry_days: int = 3) -> bool:
-    """V3 flag: a relevant central-bank decision falls within the carry horizon after fill."""
+    """CENTRAL_BANK_CARRY_RISK flag: relevant CB decision in carry horizon after fill."""
     cal = _cb_dates(fill_time.year)
     if not cal:
         return False
@@ -232,9 +234,11 @@ def resolve_trade(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataF
         hit = after[after["high"] >= limit]
     if hit.empty:
         out["status"] = "PENDING" if week_live else "LIMIT_MISSED"
-        v1b = _v1b_fired(h4, start, end, top, bot, sign, v1b_buffer(inst, h4, sig_time))
+        h4_break = _h4_buffer_break_fired(
+            h4, start, end, top, bot, sign, h4_buffer_break_buffer(inst, h4, sig_time)
+        )
         out["block_flags"] = ",".join(_gates(
-            inst, is_long, sig_time, top, bot, ec_score, h4, d1, structure_intact, v1b))
+            inst, is_long, sig_time, top, bot, ec_score, h4, d1, structure_intact, h4_break))
         out["block_verdict"] = "N/A"
         return out
     fill_time = hit.iloc[0]["datetime"]
@@ -271,9 +275,11 @@ def resolve_trade(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataF
         out["r_result"] = round(sign * (walk["close"].iloc[-1] - limit) / sl, 2)
     out["mfe_r"], out["mae_r"] = round(mfe, 2), round(mae, 2)
 
-    # ── gate-attribution audit (V1b scanned across the whole week = intra-trade too) ──
-    v1b = _v1b_fired(h4, start, end, top, bot, sign, v1b_buffer(inst, h4, sig_time))
-    flags = _gates(inst, is_long, fill_time, top, bot, ec_score, h4, d1, structure_intact, v1b)
+    # ── gate-attribution audit (H4_BUFFER_BREAK scanned across the whole week = intra-trade too) ──
+    h4_break = _h4_buffer_break_fired(
+        h4, start, end, top, bot, sign, h4_buffer_break_buffer(inst, h4, sig_time)
+    )
+    flags = _gates(inst, is_long, fill_time, top, bot, ec_score, h4, d1, structure_intact, h4_break)
     out["block_flags"] = ",".join(flags)
     if not flags or out["r_result"] == "":
         out["block_verdict"] = "CLEAN" if not flags else "N/A"
@@ -283,7 +289,7 @@ def resolve_trade(z: pd.Series, h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataF
     return out
 
 
-def _v1b_fired(h4, start, end, top, bot, sign, buf) -> bool:
+def _h4_buffer_break_fired(h4, start, end, top, bot, sign, buf) -> bool:
     """Two consecutive H4 closes beyond zone+buffer anywhere in the zone's live week
     (entry OR intra-trade) — the mid-week invalidation gate."""
     win = h4[(h4["datetime"] >= start) & (h4["datetime"] < end)]
@@ -295,23 +301,24 @@ def _v1b_fired(h4, start, end, top, bot, sign, buf) -> bool:
     return bool((b[:-1] & b[1:]).any())
 
 
-def _gates(inst, is_long, t, top, bot, ec_score, h4, d1, structure_intact, v1b) -> list:
-    """Hard gates as non-suppressing flags. V1/V3/VETO/EC at the fill bar; V1b is the
+def _gates(inst, is_long, t, top, bot, ec_score, h4, d1, structure_intact, h4_break) -> list:
+    """Hard gates as non-suppressing flags. DAILY_ZONE_BREAK/CENTRAL_BANK_CARRY_RISK/
+    VETO/EC at the fill bar; H4_BUFFER_BREAK is the
     week-scanned intra-trade invalidation (passed in)."""
     t = pd.Timestamp(t)
     flags = []
 
-    # V1 — D1 close beyond zone during the live week
+    # DAILY_ZONE_BREAK — D1 close beyond zone during the live week
     if not structure_intact:
-        flags.append("V1")
+        flags.append("DAILY_ZONE_BREAK")
 
-    # V1b — mid-week intra-trade invalidation (computed across the week)
-    if v1b and "V1" not in flags:
-        flags.append("V1b")
+    # H4_BUFFER_BREAK — mid-week intra-trade invalidation (computed across the week)
+    if h4_break and "DAILY_ZONE_BREAK" not in flags:
+        flags.append("H4_BUFFER_BREAK")
 
-    # V3 — relevant CB decision within the carry horizon
+    # CENTRAL_BANK_CARRY_RISK — relevant CB decision within the carry horizon
     if cb_in_carry(inst, t):
-        flags.append("V3")
+        flags.append("CENTRAL_BANK_CARRY_RISK")
 
     # VETO-VIX (>35) — xauusd shorts / FX longs
     s = load_fred("VIXCLS")
@@ -366,7 +373,15 @@ def summarize(df: pd.DataFrame):
     # gate accuracy
     print("\n── gate accuracy (counterfactual: filled despite the gate) " + "─" * 4)
     print(f"{'gate':<14}{'nBlock':>7}{'win%':>7}{'totR':>8}  verdict")
-    gates = ["V1", "V1b", "V3", "VETO_VIX", "VETO_ADX", "INTERVENTION", "EC_FLOOR"]
+    gates = [
+        "DAILY_ZONE_BREAK",
+        "H4_BUFFER_BREAK",
+        "CENTRAL_BANK_CARRY_RISK",
+        "VETO_VIX",
+        "VETO_ADX",
+        "INTERVENTION",
+        "EC_FLOOR",
+    ]
     fl = df["block_flags"].fillna("")
     for g in gates:
         m = fl.apply(lambda s: g in s.split(",") if s else False)

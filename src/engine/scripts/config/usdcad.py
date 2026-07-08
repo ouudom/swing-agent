@@ -34,8 +34,8 @@ FOREIGN_CCY       = "CA"
 OIL_SERIES  = "DCOILWTICO"
 FRED_SERIES = FRED_SERIES_BASE + [OIL_SERIES]
 
-# V1b invalidation buffer: placeholder 5 pips — calibrate from ATR after backfill.
-V1B_BUFFER = 0.0005
+# H4_BUFFER_BREAK invalidation buffer: placeholder 5 pips — calibrate from ATR after backfill.
+H4_BUFFER_BREAK_BUFFER = 0.0005
 
 # COT — CME Canadian dollar futures (6C). INVERTED (see _fx_usd_base).
 COT_CONTRACT_NAME = "CANADIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE"

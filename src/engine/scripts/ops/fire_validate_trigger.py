@@ -3,7 +3,7 @@ fire_validate_trigger — cheap Python gate in front of the Claude /validate rou
 
 Firing /validate on every H1 close for all 11 instruments spends Claude tokens on zones
 price is nowhere near. This gate runs the SAME deterministic checks the replay uses
-(E0 detection, programmatic Entry Confluence, V1/V1b invalidation) on stored OHLC — no
+(E0 detection, programmatic Entry Confluence, DAILY_ZONE_BREAK/H4_BUFFER_BREAK invalidation) on stored OHLC — no
 Claude — and only POSTs the routine trigger when a live zone is actually actionable RIGHT
 NOW. Everything here is pure Python; the model is woken only past the gate.
 
@@ -13,8 +13,9 @@ Fire reasons (any live zone of the instrument matching → fire once for the ins
           EC_GATE (4.0) sits BELOW the real 5.0 ORDER_LIMIT floor on purpose: the
           scorer is a provisional approximation (see entry_confluence.py fidelity
           caveat), so we gate loose and let Claude make the real call.
-  INVAL — a hard block fired on a still-live zone: V1 (a D1 close beyond the zone's far
-          edge) or V1b (two consecutive H4 closes beyond zone+ATR buffer). /validate is
+  INVAL — a hard block fired on a still-live zone: DAILY_ZONE_BREAK (a D1 close beyond
+          the zone's far edge) or H4_BUFFER_BREAK (two consecutive H4 closes beyond
+          zone+ATR buffer). /validate is
           woken to formally INVALIDATE it and write the trade_log row.
 
 Skips (no fire, no tokens):
@@ -67,7 +68,7 @@ import db  # noqa: E402
 import entry_confluence as ec  # noqa: E402
 from zone_ledger import load_ledger  # noqa: E402
 from zone_outcomes import week_window, atr14_before, load_tf, min_bar_range  # noqa: E402
-from trade_outcome import e0_triggers, _v1b_fired, v1b_buffer  # noqa: E402
+from trade_outcome import e0_triggers, _h4_buffer_break_fired, h4_buffer_break_buffer  # noqa: E402
 
 EC_GATE = 4.0
 INSTRUMENTS = [
@@ -191,9 +192,17 @@ def _zone_signal(z: pd.Series, h1, h4, d1, mbr: float, last_bar) -> str | None:
     # INVAL — hard block on a still-live zone (checked across the zone's live week).
     sign = 1 if is_long else -1
     dwin = d1[(d1["datetime"] >= start) & (d1["datetime"] < end)]
-    v1 = (dwin["close"] > top).any() if sign < 0 else (dwin["close"] < bot).any()
-    v1b = _v1b_fired(h4, start, end, top, bot, sign, v1b_buffer(z["instrument"], h4, last_bar["datetime"]))
-    if bool(v1) or bool(v1b):
+    daily_zone_break = (dwin["close"] > top).any() if sign < 0 else (dwin["close"] < bot).any()
+    h4_buffer_break = _h4_buffer_break_fired(
+        h4,
+        start,
+        end,
+        top,
+        bot,
+        sign,
+        h4_buffer_break_buffer(z["instrument"], h4, last_bar["datetime"]),
+    )
+    if bool(daily_zone_break) or bool(h4_buffer_break):
         return "INVAL"
 
     # ENTRY — latest H1 bar touches the zone, E0 fired toward it, programmatic EC clears the gate.
