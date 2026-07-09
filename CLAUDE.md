@@ -188,10 +188,11 @@ No `_HOT.md`. No parking-lot file. The forecast/validation doc itself is the rec
 Use repo-local docs:
 
 - `README.md` - orientation.
-- `DEPLOYMENT_UBUNTU.md` - server deploy, MCP registration, smoke tests.
-- `ROUTINES.md` - operational routine contract.
-- `src/README.md` - service commands, MCP reference, dashboard notes.
-- `IMPLEMENTATION_PLAN.md` - historical only; top notice supersedes old `wiki/` design.
+- `docs/README.md` - project context index.
+- `docs/deployment.md` - server deploy, MCP registration, smoke tests.
+- `docs/routines.md` - operational routine contract.
+- `docs/service-reference.md` - service commands, MCP reference, dashboard notes.
+- `docs/implementation-plan.md` - historical only; top notice supersedes old `wiki/` design.
 
 Useful checks:
 

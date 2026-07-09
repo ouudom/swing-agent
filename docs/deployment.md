@@ -276,7 +276,7 @@ docker compose run --rm pipeline \
   python src/pipeline/scheduler.py --once send_notifications
 ```
 
-Routine contract lives in `ROUTINES.md`.
+Routine contract lives in `docs/routines.md`.
 
 ## 8. Backups
 

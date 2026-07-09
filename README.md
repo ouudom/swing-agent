@@ -13,13 +13,8 @@ Docs tab.
 
 ## Quick links
 
-- [`DEPLOYMENT_UBUNTU.md`](DEPLOYMENT_UBUNTU.md) — clone → env → Postgres → backfill → start
-  pipeline + MCP → smoke test → update/rollback, for a homeserver deploy.
-- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — architecture decisions, storage split,
-  git workflow, deterministic-vs-AI split, migration status.
-- [`ROUTINES.md`](ROUTINES.md) — the Claude Code weekly/hourly routine contract against MCP.
-- [`src/README.md`](src/README.md) — app-level dev notes: services, one-shot jobs, MCP tool
-  reference, DB↔git reconcile.
+- [`docs/`](docs/README.md) — project context index: architecture, routines, deployment,
+  service reference, historical plan.
 
 ## Deploy scope
 

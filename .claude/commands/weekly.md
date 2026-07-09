@@ -7,7 +7,7 @@ Run the swing-agent Weekly Routine for **$ARGUMENTS** (one instrument; if omitte
 the 11: xauusd, eurusd, gbpusd, eurgbp, audusd, nzdusd, usdcad, usdchf, usdjpy, eurjpy, gbpjpy).
 
 This repo is self-contained — do not read/write the parent `swing-trading` repo. MCP is the only
-gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Formulas (v3).
+gateway to Postgres. Full contract: `docs/routines.md`. Formulas: `CLAUDE.md` Core Formulas (v3).
 
 > **Running "all instruments"?** Do NOT run 11 in one context — that trips session limits and
 > long single runs drop the final `write_doc`. Fan out **one subagent per instrument** in **batches

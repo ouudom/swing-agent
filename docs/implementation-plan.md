@@ -3,7 +3,7 @@
 > Postgres (`rulebook`/`context_doc`/`forecast_doc`/`validation_doc`, see `CLAUDE.md` "Storage
 > Split") via `import_wiki_to_doc.py`, then the folder was deleted. This file is kept as-is for
 > the historical record of what was decided and why at each stage — read current architecture
-> from `CLAUDE.md` / `README.md` / `ROUTINES.md`, not from the plan below.
+> from `CLAUDE.md` / `README.md` / `docs/routines.md`, not from the plan below.
 
 # swing-agent — Thin Application Migration Plan
 
@@ -514,7 +514,7 @@ known backtests reproduce. Rollback = Claude Code returns to local scripts.
 - Schedule hourly `/validate` on laptop first.
 - Validate owns only `wiki/validations/{month}/{date}/{inst}.md`.
 - Run manual shadow compare for several sessions before trusting live order path.
-- Added `ROUTINES.md` with DB-first/git-second contract, laptop validate route, weekly route,
+- Added `docs/routines.md` with DB-first/git-second contract, laptop validate route, weekly route,
   cloud dry-run, and rollback.
 
 **Exit:** app-side write/reconcile contract is implemented. Actual hourly Claude Code routine still
@@ -552,7 +552,7 @@ manual/laptop `/validate`.
 - Expose MCP via Cloudflare Tunnel or Tailscale Funnel.
 - Require `MCP_AUTH_TOKEN`; keep Postgres private.
 - Give routine git clone/push credentials limited to the repo.
-- Covered in `ROUTINES.md` + Ubuntu deployment guide. No public exposure enabled locally.
+- Covered in `docs/routines.md` + Ubuntu deployment guide. No public exposure enabled locally.
 
 **5.2 Cloud dry run — PENDING CREDENTIALS**
 - Run cloud routine in shadow mode first: read MCP, write md to test branch, no DB writes.

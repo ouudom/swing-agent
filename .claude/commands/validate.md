@@ -7,7 +7,7 @@ Run the swing-agent Validate Routine for **$ARGUMENTS** (instrument optional —
 active instruments in one pass; date optional — default: today UTC).
 
 This repo is self-contained — do not read/write the parent `swing-trading` repo. MCP is the only
-gateway to Postgres. Full contract: `ROUTINES.md`. Formulas: `CLAUDE.md` Core Formulas (v3).
+gateway to Postgres. Full contract: `docs/routines.md`. Formulas: `CLAUDE.md` Core Formulas (v3).
 
 ## Per-instrument steps
 
