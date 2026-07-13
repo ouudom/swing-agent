@@ -80,7 +80,7 @@ back to `src/logs/pipeline_run.jsonl` for local diagnosis.
 ## MCP Read/Compute Server
 
 `mcp-native` — port 8766, native MCP over Streamable HTTP (`/mcp`), register in Claude Code —
-fronts the tool surface (`src/mcp-server/tools.py`).
+fronts the tool surface (`src/mcp_server/tools.py`).
 
 Start full local stack:
 

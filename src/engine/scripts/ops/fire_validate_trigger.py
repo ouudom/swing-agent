@@ -75,6 +75,8 @@ INSTRUMENTS = [
     "xauusd", "eurusd", "gbpusd", "eurgbp", "audusd", "nzdusd",
     "usdcad", "usdchf", "usdjpy", "eurjpy", "gbpjpy",
 ]
+# "all" (no --instrument) only fires the active set; explicit --instrument still works for any pair.
+ACTIVE_INSTRUMENTS = ["xauusd", "eurusd", "usdchf"]
 # a trade_log status here means the zone is live/closed — /validate must NOT be woken for it.
 LOCKED_TRADE_STATUSES = {"RUNNING", "WIN", "LOSS", "BREAKEVEN", "EXPIRED"}
 TRIGGER_TABLE = "trigger_state"
@@ -396,11 +398,11 @@ def fire(inst: str, reason: str, zone_id: str, h1_dt: str | None = None) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--instrument", choices=INSTRUMENTS, help="one instrument (default: all 11)")
+    ap.add_argument("--instrument", choices=INSTRUMENTS, help="one instrument (default: active set)")
     ap.add_argument("--dry-run", action="store_true", help="evaluate + print, never POST or mark fired")
     args = ap.parse_args(argv)
 
-    targets = [args.instrument] if args.instrument else INSTRUMENTS
+    targets = [args.instrument] if args.instrument else ACTIVE_INSTRUMENTS
     fired = 0
     for inst in targets:
         d = evaluate(inst)

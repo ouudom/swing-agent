@@ -1,34 +1,27 @@
-#!/usr/bin/env python3
-"""
-server.py — read-only monitoring dashboard for swing-agent.
+"""app.py — FastAPI port of server.py (read-only monitoring dashboard).
 
-Standalone by design: it does NOT import the mcp_server `tools.py` (that pulls the
-heavy `engine` package). It carries its own tiny `pg_connect` + `query` and a fixed
-map of read-only SQL behind `/api/*`. Also serves the built Vite bundle (static
-files) so the browser fetches same-origin `/api/*` — no CORS, no token in the page.
+Same endpoints, same SQL, same ACTIVE_INSTRUMENTS filter, same static-bundle-serving
+behavior as the original `http.server` implementation. Ports to a real framework
+(async, typed routes, docs at /docs) without changing any query or response shape —
+every `api_*`/`query()` function below is a straight copy from server.py.
 
-Bind 127.0.0.1 (compose default) and view over an SSH tunnel.
+server.py is kept alongside for rollback; swap the Dockerfile CMD back to
+`python api/server.py` to revert.
 """
 from __future__ import annotations
 
-import json
-import mimetypes
 import os
-import sys
-import traceback
 from datetime import date, datetime, timezone
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0")
 PORT = int(os.getenv("DASHBOARD_PORT", "8888"))
 # Dashboard-wide instrument filter — other 9 pairs stay in Postgres (dead history) but
 # never surface in any tab. Keep in sync with engine.commands.ACTIVE_INSTRUMENTS.
 ACTIVE_INSTRUMENTS = ["xauusd", "eurusd", "usdchf"]
-# Where the built Vite bundle lives. Defaults to ../static relative to this file
-# (populated by the Docker build stage). Override with DASHBOARD_DIST.
 DIST_DIR = Path(os.getenv("DASHBOARD_DIST", Path(__file__).resolve().parent / "static"))
 ROW_CAP = 500
 SQL_TIMEOUT_MS = 8000
@@ -72,7 +65,7 @@ def query(sql: str, params=()):
 
 
 # ---------------------------------------------------------------------------
-# API endpoints — each returns a JSON-serialisable object. Read-only SQL only.
+# Query functions — identical SQL to server.py.
 # ---------------------------------------------------------------------------
 
 def api_health():
@@ -92,7 +85,6 @@ def api_health():
             "UNION ALL SELECT 'econ_calendar', MAX(date)::timestamptz FROM econ_calendar",
             (ACTIVE_INSTRUMENTS,),
         ),
-        # Per-instrument OHLC freshness — a single stale pair hides behind the global MAX.
         "ohlc_freshness": query(
             "SELECT symbol, tf, MAX(datetime) AS latest, COUNT(*) AS bars "
             "FROM ohlc WHERE symbol = ANY(%s) GROUP BY symbol, tf ORDER BY symbol, tf",
@@ -103,7 +95,6 @@ def api_health():
 
 
 def api_trades():
-    # Live order book (real trade_log, distinct from the replay in trade_outcome).
     return query(
         "SELECT zone_id, instrument, week, label, direction, status, entry_confluence, "
         "limit_price, sl_price, tp_price, entry_price, fill_time, exit_price, exit_time, "
@@ -133,7 +124,6 @@ def api_notifications():
 
 def api_gates():
     return {
-        # Upcoming CB decisions — current week + next week only (Mon this week → Sun next week).
         "cb": query(
             "SELECT bank_code, name, hard_block, caution, time_note, "
             "(d->>'date')::date AS decision_date, d->>'status' AS decision_status "
@@ -142,7 +132,6 @@ def api_gates():
             "AND (d->>'date')::date < date_trunc('week', now() AT TIME ZONE 'utc')::date + 14 "
             "ORDER BY decision_date LIMIT 30"
         ),
-        # High-impact econ, current week + next week only (Mon this week → Sun next week).
         "econ": query(
             "SELECT date, time_utc, country, event, impact, estimate, actual, prev "
             "FROM econ_calendar "
@@ -151,7 +140,6 @@ def api_gates():
             "AND upper(coalesce(impact,'')) IN ('HIGH','MEDIUM') "
             "ORDER BY date, time_utc LIMIT 60"
         ),
-        # JPY intervention watch — spot-vs-level gate.
         "intervention": query(
             "SELECT pair, intervention_level, caution_band, regime, verified_through "
             "FROM intervention_watch ORDER BY pair"
@@ -165,8 +153,7 @@ def api_ohlc(symbol: str, tf: str):
         "WHERE symbol = %s AND tf = %s ORDER BY datetime DESC LIMIT 300",
         (symbol, tf),
     )
-    rows.reverse()  # chronological for the candlestick
-    # Zones for this instrument to overlay (band + limit/invalidation/tp lines).
+    rows.reverse()
     zones = query(
         "SELECT zone_id, week, label, direction, zone_bottom, zone_top, status, "
         "limit_price, invalidation_level, tp_anchor, published_utc "
@@ -193,7 +180,6 @@ def api_quarantine():
 
 
 def api_equity():
-    # Cumulative R over time — the running equity curve.
     return query(
         "SELECT zone_id, instrument, direction, exit_time, r_result, "
         "SUM(r_result) OVER (ORDER BY exit_time, resolved_utc) AS cum_r "
@@ -228,14 +214,12 @@ def api_buckets():
         "GROUP BY conviction ORDER BY conviction",
         (ACTIVE_INSTRUMENTS,),
     )
-    # Gate-accuracy audit — was blocking correct? block_verdict summarises it.
     gate = query(
         "SELECT block_verdict, block_flags, COUNT(*) AS n, AVG(r_result) AS avg_r "
         "FROM trade_outcome WHERE block_verdict IS NOT NULL AND instrument = ANY(%s) "
         "GROUP BY block_verdict, block_flags ORDER BY n DESC LIMIT 30",
         (ACTIVE_INSTRUMENTS,),
     )
-    # MFE/MAE scatter — are wins capped early, losses run?
     scatter = query(
         "SELECT zone_id, instrument, direction, ec_score, mfe_r, mae_r, r_result "
         "FROM trade_outcome WHERE r_result IS NOT NULL AND mfe_r IS NOT NULL AND instrument = ANY(%s) "
@@ -246,7 +230,6 @@ def api_buckets():
 
 
 def api_zone_trades():
-    # Zone-quality replay (zone_outcome, SL = zone width) — full history, not just open.
     overall = query(
         "SELECT COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS resolved, "
         "COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
@@ -285,7 +268,6 @@ def api_zone_trades():
 
 
 def api_zone_trades_atr():
-    # Same replay as api_zone_trades, SL = constitution ATR formula instead of zone width.
     overall = query(
         "SELECT COUNT(*) FILTER (WHERE r_result IS NOT NULL) AS resolved, "
         "COUNT(*) FILTER (WHERE r_result > 0) AS wins, "
@@ -376,6 +358,14 @@ def api_config():
     }
 
 
+DOC_TABLE = {
+    "rulebook": "rulebook",
+    "context": "context_doc",
+    "forecast": "forecast_doc",
+    "validation": "validation_doc",
+}
+
+
 def api_doc_history(doc_type: str, key: str):
     table = DOC_TABLE.get(doc_type)
     source_table = {"context": "context_doc"}.get(doc_type, table)
@@ -387,8 +377,6 @@ def api_doc_history(doc_type: str, key: str):
 
 
 def api_zones():
-    # Zone-quality replay view: "open" per zone_outcome (SL = zone width), same
-    # shape as api_zones_atr (SL = constitution ATR) for direct comparison.
     return query(
         """
         SELECT z.zone_id, z.instrument, z.week, z.label, z.direction,
@@ -405,8 +393,6 @@ def api_zones():
 
 
 def api_zones_atr():
-    # Comparison view: same zones, but "open" per the ATR-SL replay (zone_atr_sl_outcome),
-    # which does not drive zone_ledger.status — a zone can differ here vs /api/zones.
     return query(
         """
         SELECT z.zone_id, z.instrument, z.week, z.label, z.direction,
@@ -488,7 +474,6 @@ def api_calibration():
 
 
 def api_docs():
-    # Unified metadata (no body) across the four prose tables (Phase 1).
     return query(
         """
         SELECT 'rulebook' AS doc_type, doc_key, kind, instrument, NULL::text AS week,
@@ -503,14 +488,6 @@ def api_docs():
         """,
         (ACTIVE_INSTRUMENTS, ACTIVE_INSTRUMENTS, ACTIVE_INSTRUMENTS),
     )
-
-
-DOC_TABLE = {
-    "rulebook": "rulebook",
-    "context": "context_doc",
-    "forecast": "forecast_doc",
-    "validation": "validation_doc",
-}
 
 
 def api_doc(doc_type: str, key: str):
@@ -530,105 +507,92 @@ API = {
     "/api/pipeline": api_pipeline,
     "/api/calibration": api_calibration,
     "/api/docs": api_docs,
-    # Tab: Dashboard
     "/api/trades": api_trades,
     "/api/notifications": api_notifications,
     "/api/gates": api_gates,
-    # Tab: Charts
     "/api/symbols": api_symbols,
     "/api/quarantine": api_quarantine,
-    # Tab: Performance
     "/api/equity": api_equity,
     "/api/buckets": api_buckets,
     "/api/zone_trades": api_zone_trades,
     "/api/zone_trades_atr": api_zone_trades_atr,
-    # Tab: Macro
     "/api/macro": api_macro,
     "/api/config": api_config,
 }
 
-# Endpoints that take query params — dispatched in do_GET (parse then call).
-def _q(qs: dict, name: str, default: str = "") -> str:
-    return (qs.get(name) or [default])[0]
+app = FastAPI(title="swing-agent dashboard", docs_url="/api/docs-ui")
 
 
-QUERY_API = {
-    "/api/ohlc": lambda qs: api_ohlc(_q(qs, "symbol"), _q(qs, "tf", "1day")),
-    "/api/news": lambda qs: api_news(_q(qs, "instrument")),
-    "/api/doc-history": lambda qs: api_doc_history(_q(qs, "type"), _q(qs, "key")),
-}
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
 
 
-class Handler(BaseHTTPRequestHandler):
-    server_version = "swing-agent-dashboard/0.1"
+@app.get("/health")
+def health():
+    return {"ok": True, "time": utc_now()}
 
-    def log_message(self, fmt, *args):
-        print(f"{utc_now()} {self.client_address[0]} {fmt % args}", flush=True)
 
-    def _json(self, status: int, payload):
-        body = json.dumps(payload, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+def _register_simple_routes():
+    # Closures over `fn` need a default-arg capture — a bare loop var would bind
+    # late and every route would call the last `fn` in API.
+    for path, fn in API.items():
+        def make_handler(fn=fn):
+            def handler():
+                return {"ok": True, "data": fn()}
+            return handler
+        app.get(path)(make_handler())
 
-    def _serve_static(self, path: str):
-        # Map URL path to a file under DIST_DIR; SPA fallback to index.html.
-        rel = path.lstrip("/") or "index.html"
-        target = (DIST_DIR / rel).resolve()
-        if not str(target).startswith(str(DIST_DIR.resolve())) or not target.is_file():
-            target = DIST_DIR / "index.html"
-        if not target.is_file():
-            return self._json(HTTPStatus.NOT_FOUND, {"error": "dashboard bundle not built"})
-        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-        body = target.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        if path == "/health":
-            return self._json(HTTPStatus.OK, {"ok": True, "time": utc_now()})
-        if path == "/api/doc":
-            qs = parse_qs(parsed.query)
-            try:
-                data = api_doc((qs.get("type") or [""])[0], (qs.get("key") or [""])[0])
-                return self._json(HTTPStatus.OK, {"ok": True, "data": data})
-            except Exception as exc:
-                return self._json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"ok": False, "error": str(exc), "trace": traceback.format_exc(limit=3)},
-                )
-        if path in QUERY_API:
-            qs = parse_qs(parsed.query)
-            try:
-                return self._json(HTTPStatus.OK, {"ok": True, "data": QUERY_API[path](qs)})
-            except Exception as exc:
-                return self._json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"ok": False, "error": str(exc), "trace": traceback.format_exc(limit=3)},
-                )
-        if path in API:
-            try:
-                return self._json(HTTPStatus.OK, {"ok": True, "data": API[path]()})
-            except Exception as exc:
-                return self._json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"ok": False, "error": str(exc), "trace": traceback.format_exc(limit=3)},
-                )
-        return self._serve_static(path)
+_register_simple_routes()
+
+
+@app.get("/api/ohlc")
+def ohlc_route(symbol: str, tf: str = "1day"):
+    return {"ok": True, "data": api_ohlc(symbol, tf)}
+
+
+@app.get("/api/news")
+def news_route(instrument: str = ""):
+    return {"ok": True, "data": api_news(instrument)}
+
+
+@app.get("/api/doc-history")
+def doc_history_route(type: str, key: str):
+    return {"ok": True, "data": api_doc_history(type, key)}
+
+
+@app.get("/api/doc")
+def doc_route(type: str, key: str):
+    try:
+        return {"ok": True, "data": api_doc(type, key)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/{full_path:path}")
+def serve_static(full_path: str):
+    rel = full_path.lstrip("/") or "index.html"
+    target = (DIST_DIR / rel).resolve()
+    if not str(target).startswith(str(DIST_DIR.resolve())) or not target.is_file():
+        target = DIST_DIR / "index.html"
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="dashboard bundle not built")
+    return FileResponse(target)
 
 
 def main() -> int:
+    # NOTE: this service builds from its own isolated Docker context (./src/dashboard,
+    # see Dockerfile) and cannot reach src/logging_config.py at the repo root — plain
+    # print-logging by design, matching server.py.
+    import uvicorn
+
     print(f"swing-agent dashboard starting on {HOST}:{PORT} (dist={DIST_DIR})", flush=True)
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    uvicorn.run(app, host=HOST, port=PORT)
     return 0
 
 
 if __name__ == "__main__":
+    import sys
+
     sys.exit(main())

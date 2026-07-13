@@ -32,7 +32,7 @@ from trade_outcome import TP_R_FAR, TP_R_NEAR, session_mult  # noqa: E402
 
 
 def _load_tools():
-    path = SRC_ROOT / "mcp-server" / "tools.py"
+    path = SRC_ROOT / "mcp_server" / "tools.py"
     spec = importlib.util.spec_from_file_location("swing_mcp_tools", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load tools from {path}")

@@ -3,8 +3,9 @@ description: Hourly daily-validation pass for one or all instruments (swing-agen
 argument-hint: [instrument] [date]
 ---
 
-Run the swing-agent Validate Routine for **$ARGUMENTS** (instrument optional — default: all 11
-active instruments in one pass; date optional — default: today UTC).
+Run the swing-agent Validate Routine for **$ARGUMENTS** (instrument optional — default: the
+active set, xauusd + eurusd + usdchf, in one pass; pass an instrument name to run any of the
+other 8 on demand; date optional — default: today UTC).
 
 This repo is self-contained — do not read/write the parent `swing-trading` repo. MCP is the only
 gateway to Postgres. Full contract: `docs/routines.md`. Formulas: `CLAUDE.md` Core Formulas (v3).

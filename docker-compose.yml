@@ -24,11 +24,26 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
-  pipeline:
+  redis:
+    image: redis:7-alpine
+    container_name: swing-agent-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+
+  worker:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: swing-agent-pipeline
+    container_name: swing-agent-worker
     restart: unless-stopped
     env_file:
       - path: .env
@@ -42,13 +57,55 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
       POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    working_dir: /app
-    command: ["python", "src/pipeline/scheduler.py"]
+    working_dir: /app/src
+    # concurrency >= 2: market_cycle/nightly_replay block on a group().get() for
+    # their fan-out legs (see celery_tasks.py) — a parent waiting on its own
+    # children with concurrency=1 deadlocks the pool.
+    command: ["celery", "-A", "pipeline.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A pipeline.celery_app inspect ping --timeout=5"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - .:/app
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: swing-agent-beat
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SWING_AGENT_REPO_ROOT: /app
+      SWING_DB_BACKEND: postgres
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-swing_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-swing_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swing_agent_dev_password}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    working_dir: /app/src
+    command: ["celery", "-A", "pipeline.celery_app", "beat", "--loglevel=INFO"]
     volumes:
       - .:/app
 
@@ -76,7 +133,7 @@ services:
       postgres:
         condition: service_healthy
     working_dir: /app
-    command: ["python", "src/mcp-server/server_mcp.py"]
+    command: ["python", "src/mcp_server/server_mcp.py"]
     ports:
       - "127.0.0.1:${MCP_NATIVE_PORT:-8766}:8766"
     volumes:
@@ -110,3 +167,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

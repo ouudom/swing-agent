@@ -14,10 +14,12 @@ RUN npm run build
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 WORKDIR /dashboard
-RUN pip install "psycopg[binary]>=3.1"
+RUN pip install "psycopg[binary]>=3.1" "fastapi>=0.115" "uvicorn>=0.30"
 COPY api/ ./api/
 # Built static bundle from the web stage (vite outDir = api/static).
 COPY --from=web /dashboard/api/static ./api/static
 ENV DASHBOARD_DIST=/dashboard/api/static
 EXPOSE 8888
-CMD ["python", "api/server.py"]
+# app.py = FastAPI port of server.py (same endpoints/SQL, see app.py docstring).
+# Revert to `python api/server.py` to roll back to the http.server implementation.
+CMD ["python", "api/app.py"]

@@ -253,7 +253,7 @@ def run_job(job_name: str, instrument: str | None = None, **kwargs) -> RunRecord
 
 
 def refresh_all_briefs() -> list[RunRecord]:
-    return [run_job("brief_refresh", instrument=inst) for inst in commands.INSTRUMENTS]
+    return [run_job("brief_refresh", instrument=inst) for inst in commands.ACTIVE_INSTRUMENTS]
 
 
 def _weekly_digest() -> None:

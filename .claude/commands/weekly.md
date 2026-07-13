@@ -3,16 +3,19 @@ description: Weekly Trading Zone forecast for one instrument (swing-agent, MCP-o
 argument-hint: [instrument]
 ---
 
-Run the swing-agent Weekly Routine for **$ARGUMENTS** (one instrument; if omitted, ask which of
-the 11: xauusd, eurusd, gbpusd, eurgbp, audusd, nzdusd, usdcad, usdchf, usdjpy, eurjpy, gbpjpy).
+Run the swing-agent Weekly Routine for **$ARGUMENTS** (one instrument; if omitted, ask which —
+default to the active set, xauusd, eurusd, or usdchf. The other 8 — gbpusd, eurgbp, audusd,
+nzdusd, usdcad, usdjpy, eurjpy, gbpjpy — stay fully wired and runnable on demand, just not
+scheduled by default).
 
 This repo is self-contained — do not read/write the parent `swing-trading` repo. MCP is the only
 gateway to Postgres. Full contract: `docs/routines.md`. Formulas: `CLAUDE.md` Core Formulas (v3).
 
-> **Running "all instruments"?** Do NOT run 11 in one context — that trips session limits and
-> long single runs drop the final `write_doc`. Fan out **one subagent per instrument** in **batches
-> of ≤3 concurrent**; let each batch fully commit (Step 6 verify passes) before starting the next.
-> Each subagent runs Steps 0–6 below for its instrument and returns a compact write-confirmation.
+> **Running multiple instruments?** Do NOT run more than ~3 in one context — that trips session
+> limits and long single runs drop the final `write_doc`. Fan out **one subagent per instrument**
+> in **batches of ≤3 concurrent**; let each batch fully commit (Step 6 verify passes) before
+> starting the next. Each subagent runs Steps 0–6 below for its instrument and returns a compact
+> write-confirmation.
 
 ## Steps
 

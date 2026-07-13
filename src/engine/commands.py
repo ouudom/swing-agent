@@ -21,6 +21,14 @@ INSTRUMENTS = [
     "gbpjpy",
 ]
 
+# Instruments actually run by scheduled "all" fan-outs (fetch/validate cron cycles).
+# The other 9 stay fully wired (config, gates, CLI --instrument) for manual/on-demand runs.
+ACTIVE_INSTRUMENTS = [
+    "xauusd",
+    "eurusd",
+    "usdchf",
+]
+
 
 @dataclass
 class CommandResult:

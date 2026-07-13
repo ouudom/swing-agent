@@ -42,6 +42,9 @@ REGISTERED_INSTRUMENTS = {
     "gbpjpy": "config.gbpjpy",   # D024 pair #7 — cross-JPY #2 (one-leg macro = SONIA, COT off, high ATR)
 }
 
+# "--instrument all" only fetches the active set; explicit --instrument still works for any registered pair.
+ACTIVE_INSTRUMENTS = ["xauusd", "eurusd", "usdchf"]
+
 _instrument_cfg = None  # set by load_instrument()
 
 
@@ -852,7 +855,7 @@ if __name__ == "__main__":
             sys.exit(2)
         sys.exit(0)
 
-    to_run = list(REGISTERED_INSTRUMENTS) if args.instrument == "all" else [args.instrument]
+    to_run = ACTIVE_INSTRUMENTS if args.instrument == "all" else [args.instrument]
     if args.instrument == "all" and args.profile in {"intraday", "full"}:
         wait_for_all_pull_window()
     for i, inst in enumerate(to_run):

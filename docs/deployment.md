@@ -106,7 +106,7 @@ docker compose exec -T pipeline \
 
 ## 6. Start Pipeline + MCP
 
-`mcp-native` (port 8766) fronts the tool surface (`src/mcp-server/tools.py`) as native
+`mcp-native` (port 8766) fronts the tool surface (`src/mcp_server/tools.py`) as native
 Model Context Protocol over Streamable HTTP, for registering directly in Claude Code /
 any MCP client.
 
@@ -159,7 +159,7 @@ claude mcp add --transport http swing-agent \
 
 Some connector UIs (e.g. claude.ai's generic "Add custom connector" dialog) only take a URL —
 no custom-header field. For those, pass the token as a query param instead (checked as a
-fallback in `BearerAuth`, `src/mcp-server/server_mcp.py`):
+fallback in `BearerAuth`, `src/mcp_server/server_mcp.py`):
 
 ```
 https://<host-or-tunnel>/mcp?token=<MCP_AUTH_TOKEN>
