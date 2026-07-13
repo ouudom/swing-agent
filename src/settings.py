@@ -40,10 +40,16 @@ class Settings(BaseSettings):
     pipeline_run_log: str | None = None
 
     def pg_dsn(self) -> str:
+        # +psycopg forces the psycopg v3 driver (what this project installs via
+        # `psycopg[binary]`) — a bare "postgresql://" DSN makes SQLAlchemy default to
+        # psycopg2, which isn't installed anywhere in this stack.
         if self.database_url:
-            return self.database_url
+            url = self.database_url
+            if url.startswith("postgresql://"):
+                url = "postgresql+psycopg://" + url[len("postgresql://") :]
+            return url
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
